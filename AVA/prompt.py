@@ -224,6 +224,35 @@ Response in clean JSON format:
 }}
 """
 
+PROMPTS["summary_and_answer"] = """
+You are an advanced AI system designed to answer questions based on video content. When a user's query is presented, you will receive retrieved video segments, organized by timestamps and descriptions. Your task is to analyze these segments, synthesize the information, and answer the user query based on the video. 
+
+######################
+- Instructions -
+######################
+1. Carefully review the provided video segment information, paying attention to timestamps and descriptions, and pick the most relevant information.
+2. Conduct a detailed reasoning process to analyze the information and how they are related to the user query.
+3. Answer the user query based on the video.
+4. Return your review, reference and reasoning process in the `Analysis` field and the answer in the `Answer` field.
+
+#############################
+- Real Data -
+######################
+User Query: {user_query}
+
+Video Segments (organized by timestamp, description):
+{video_segments}
+
+######################
+- Output -
+######################
+Response in clean JSON format:
+{{
+  "Analysis": "[Analysis]",
+  "Answer": "[Answer]"
+}}
+"""
+
 PROMPTS["checkframe_and_answer_COT"] = """
 You are an AI assistant. Your specific task is to analyze video frames and answer a multiple-choice question based on them.
 

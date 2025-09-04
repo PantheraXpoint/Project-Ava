@@ -338,7 +338,7 @@ class Node:
         print("Prepare summary and answer input")
         retrieved_information, retrieved_durations = self.event_list.format_information(limited_ratio=0.75)
         
-        summary_prompt = PROMPTS["summary_and_answer_COT"].format(
+        summary_prompt = PROMPTS["summary_and_answer"].format(
             video_segments=retrieved_information,
             user_query=self.queries[0]
         )

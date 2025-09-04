@@ -47,6 +47,6 @@ if [ -d "$SAVE_DIR/all_videos" ]; then
 fi
 
 echo "Cleaning up..."
-rm -rf "$TMP_DIR"
+# rm -rf "$TMP_DIR"
 
 echo "All videos downloaded and extracted to: $SAVE_DIR"

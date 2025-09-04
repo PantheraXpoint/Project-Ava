@@ -137,7 +137,7 @@ def semantic_chunking(
         for j in range(i+1, min(i + 1 + window_size, len(unmerged_descriptions))):
             description_list1.append(unmerged_descriptions[i])
             description_list2.append(unmerged_descriptions[j])
-    _, recall, _ = scorer.score(description_list1, description_list2)
+    _, recall, _ = scorer.score(description_list1, description_list2, batch_size=batch_size)
     recall = recall.tolist()
     
     scores_metric = [[0.0] * len(unmerged_descriptions) for _ in range(len(unmerged_descriptions))]
@@ -259,7 +259,7 @@ def extract_events(
         video=video,
         chunk_durations=chunk_durations,
         file_path=file_path,
-        batch_size=64,
+        batch_size=1,
         global_config=global_config,  
     )
     
@@ -271,6 +271,7 @@ def extract_events(
         chunk_durations=chunk_durations,
         file_path=file_path,
         global_config=global_config,
+        batch_size=1,
     )
     
     return events

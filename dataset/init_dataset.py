@@ -1,11 +1,13 @@
 from dataset.lvbench import LVBench
 from dataset.videomme import VideoMME
 from dataset.ava100 import AVA100
+from dataset.single_video import SingleVideo
 
 dataset_zoo = {
     "lvbench": LVBench,
     "videomme": VideoMME,
-    "ava100": AVA100  
+    "ava100": AVA100,
+    "single_video": SingleVideo
 }
 
 video_idx_zoo = {

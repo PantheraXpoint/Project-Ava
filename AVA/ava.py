@@ -168,11 +168,14 @@ class AVA:
                 continue
             storage_inst.index_done_callback()
     
-    def query_tree_search(self, query: str, question_id: int, re_process: bool = False):
+    def query_tree_search(self, query: str, question_id: int = -1, re_process: bool = False):
         questions_folder = os.path.join(self.video.work_dir, "questions")
         if not os.path.exists(questions_folder):
             os.makedirs(questions_folder)
-        question_folder = os.path.join(questions_folder, f"{question_id}")
+        if question_id != -1:
+            question_folder = os.path.join(questions_folder, f"{question_id}")
+        else:
+            question_folder = questions_folder
         if not os.path.exists(question_folder):
             os.makedirs(question_folder)
             
@@ -188,14 +191,19 @@ class AVA:
         finally:
             pass
     
-    def generate_SA_answer(self, query: str, question_id: int):
+    def generate_SA_answer(self, query: str, question_id: int = -1):
+        import time
+        start_time = time.time()
         question_folder = os.path.join(self.video.work_dir, "questions")
-        tree_information_file = os.path.join(question_folder, f"{question_id}", "tree_information.json")
+        if question_id != -1:
+            tree_information_file = os.path.join(question_folder, f"{question_id}", "tree_information.json")
+        else:
+            tree_information_file = os.path.join(question_folder, "tree_information.json")
         with open(tree_information_file, "r") as f:
             tree_information = json.load(f)
             
-        # generate self-consistency result
-        if os.path.exists(os.path.join(question_folder, f"{question_id}", "SA_self_consistency_result.json")):
+        # generate self-consistency resultn
+        if question_id != -1 and os.path.exists(os.path.join(question_folder, f"{question_id}", "SA_self_consistency_result.json")):
             with open(os.path.join(question_folder, f"{question_id}", "SA_self_consistency_result.json"), "r") as f:
                 cleaned_self_consistency_results = json.load(f)
         else:
@@ -206,31 +214,47 @@ class AVA:
             ]
         
             # save self-consistency result
-            with open(os.path.join(question_folder, f"{question_id}", "SA_self_consistency_result.json"), "w") as f:
-                json.dump(cleaned_self_consistency_results, f, indent=4)
+            if question_id != -1:
+                with open(os.path.join(question_folder, f"{question_id}", "SA_self_consistency_result.json"), "w") as f:
+                    json.dump(cleaned_self_consistency_results, f, indent=4)
+            else:
+                with open(os.path.join(question_folder, "SA_self_consistency_result.json"), "w") as f:
+                    json.dump(cleaned_self_consistency_results, f, indent=4)
         
         # calculate sa nodes scores
         score_results = calculate_sa_score(copy.deepcopy(cleaned_self_consistency_results))
         
-        cleaned_score_results = [
-            {k: v for k, v in item.items() if k not in {"responses"}}
-            for item in score_results
-        ]
+        # cleaned_score_results = [
+        #     {k: v for k, v in item.items() if k not in {"responses"}}
+        #     for item in score_results
+        # ]
+        cleaned_score_results = score_results        
         
         # save score results
-        with open(os.path.join(question_folder, f"{question_id}", "SA_score_result.json"), "w") as f:
-            json.dump(cleaned_score_results, f, indent=4)
+        if question_id != -1:
+            with open(os.path.join(question_folder, f"{question_id}", "SA_score_result.json"), "w") as f:
+                json.dump(cleaned_score_results, f, indent=4)
+        else:
+            with open(os.path.join(question_folder, "SA_score_result.json"), "w") as f:
+                json.dump(cleaned_score_results, f, indent=4)
         
         sorted_score_results = choose_best_sa_answer(cleaned_score_results)
         
-        with open(os.path.join(question_folder, f"{question_id}", "sorted_SA_score_result.json"), "w") as f:
-            json.dump(sorted_score_results, f, indent=4)
+        if question_id != -1:
+            with open(os.path.join(question_folder, f"{question_id}", "sorted_SA_score_result.json"), "w") as f:
+                json.dump(sorted_score_results, f, indent=4)
+        else:
+            with open(os.path.join(question_folder, "sorted_SA_score_result.json"), "w") as f:
+                json.dump(sorted_score_results, f, indent=4)
             
-        final_sa_answer = list(sorted_score_results[0]["final_score"].keys())[0]
+        # final_sa_answer = list(sorted_score_results[0]["final_score"].keys())[0]
+        final_sa_answer = sorted_score_results[0]['responses'][0]
+        end_time = time.time()
+        print(f"Time taken: {end_time - start_time} seconds")
 
         return final_sa_answer
     
-    def generate_CA_answer(self, query: str, question_id: int):
+    def generate_CA_answer(self, query: str, question_id: int = -1):
         question_folder = os.path.join(self.video.work_dir, "questions")
         SA_score_result_file = os.path.join(question_folder, f"{question_id}", "sorted_SA_score_result.json")
         assert os.path.exists(SA_score_result_file), "SA score result file does not exist, please generate SA answer first!"
