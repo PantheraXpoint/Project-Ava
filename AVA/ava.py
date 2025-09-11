@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from typing import Type
 from llms.BaseModel import BaseVideoModel, BaseLanguageModel
 from video_utils import VideoRepresentation
+import time
 
 @dataclass
 class AVA:
@@ -169,13 +170,14 @@ class AVA:
             storage_inst.index_done_callback()
     
     def query_tree_search(self, query: str, question_id: int = -1, re_process: bool = False):
+        start_time = time.time()
         questions_folder = os.path.join(self.video.work_dir, "questions")
         if not os.path.exists(questions_folder):
             os.makedirs(questions_folder)
         if question_id != -1:
             question_folder = os.path.join(questions_folder, f"{question_id}")
         else:
-            question_folder = questions_folder
+            question_folder = os.path.join(questions_folder, query)
         if not os.path.exists(question_folder):
             os.makedirs(question_folder)
             
@@ -185,7 +187,8 @@ class AVA:
         try:
             logger.info(f"Querying AVA with query: {query}")
             tree_information = tree_search(query, self.llm_model, self.video, self.events_vdb, self.entities_vdb, self.features_vdb)
-            
+            end_time = time.time()
+            print(f"Time taken for tree search: {end_time - start_time} seconds")
             with open(os.path.join(question_folder, "tree_information.json"), "w") as f:
                 json.dump(tree_information, f)
         finally:
@@ -198,7 +201,7 @@ class AVA:
         if question_id != -1:
             tree_information_file = os.path.join(question_folder, f"{question_id}", "tree_information.json")
         else:
-            tree_information_file = os.path.join(question_folder, "tree_information.json")
+            tree_information_file = os.path.join(question_folder, query, "tree_information.json")
         with open(tree_information_file, "r") as f:
             tree_information = json.load(f)
             

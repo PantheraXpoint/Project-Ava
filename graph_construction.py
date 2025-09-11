@@ -14,13 +14,13 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    dataset = init_dataset(args.dataset)
+    dataset = init_dataset(args.dataset) if args.video_path is None else init_dataset(args.dataset, args.video_path)
     llm = init_model(args.model, args.gpus)
     
     if args.video_id is not None:
         video = dataset.get_video(args.video_id)
     else:
-        video = dataset.get_video(args.video_path)
+        video = dataset.get_video()
     
     start_time = time.time()
     ava = AVA(

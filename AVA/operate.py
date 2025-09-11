@@ -17,6 +17,7 @@ from .entities import extract_entities_and_relations
 from .tree_search import TreeSearch
 from video_utils import VideoRepresentation
 from bert_score import BERTScorer
+import time
 
 
 def extract_knowledge_graph(
@@ -32,15 +33,19 @@ def extract_knowledge_graph(
 )->Union[BaseGraphStorage]:
     
     if events_vdb.is_empty() or if_check:
+        events_start_time = time.time()
         events = extract_events(
             llm=llm,
             video=global_config["video"],
             global_config=global_config,
         )
+        events_end_time = time.time()
+        print(f"Time taken for events: {events_end_time - events_start_time} seconds")
     else:
         events = events_vdb.get_datas()
     
     if entities_vdb.is_empty() or relations_vdb.is_empty() or if_check:
+        entities_start_time = time.time()
         entities, relations = extract_entities_and_relations(
             llm=llm,
             embedding_model=embedding_model,
@@ -48,6 +53,8 @@ def extract_knowledge_graph(
             video=global_config["video"],
             global_config=global_config,
         )
+        entities_end_time = time.time()
+        print(f"Time taken for entities: {entities_end_time - entities_start_time} seconds")
     else:
         entities = entities_vdb.get_datas()
         relations = relations_vdb.get_datas()
@@ -200,10 +207,11 @@ def generate_sa_self_consistency_result(
         for _ in range(self_consistency_num):
             all_input_prompts.append(
                 {
-                    "text": input_prompt  + f"""
-                    This is the timestamps and descriptions of the events:
-                    {str(tree_information[0]['structed_information'][0]['event_data'])}
-                    """,
+                    "text": input_prompt,
+                    # "text": input_prompt  + f"""
+                    # This is the timestamps and descriptions of the events:
+                    # {str(tree_information[0]['structed_information'][0]['event_data'])}
+                    # """,
                 }
             )
     

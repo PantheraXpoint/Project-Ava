@@ -282,7 +282,12 @@ class Node:
 
     def apply_action(self):
         if self.action in self.action_function:
+            import time
+            start_time = time.time()
             self.action_function[self.action]()
+            end_time = time.time()
+            print(f"Time taken for {self.action}: {end_time - start_time} seconds")
+            
 
     def _re_query(self):
         print("Re-query")

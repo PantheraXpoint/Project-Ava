@@ -56,6 +56,11 @@ Your task is to provide a continuous and smooth description of the video, focusi
 The description should cover the main scenes, characters, objects, and any notable actions or changes, ensuring the description is coherent and logical. Finally, return your response as a single, continuous, and fluent paragraph that fully describes the video content and limit the length to 300 words.
 """
 
+PROMPTS["generate_person_activity_description"] = """
+You are an expert in human activity recognition and behavioral analysis in videos. 
+Your task is to provide a detailed, continuous description focusing specifically on what people are doing in the video. Describe human actions, movements, gestures, interactions between people, their body language, and any activities they are engaged in. Pay attention to how people move through the space, their postures, facial expressions (if visible), and the sequence of actions they perform. If multiple people are present, describe how they interact with each other and coordinate their activities. Focus on the purpose and nature of their actions rather than static descriptions of their appearance. The description should flow naturally and capture the progression of human activities throughout the video. Return your response as a single, continuous paragraph that comprehensively describes all person-centered activities, limited to 300 words.
+"""
+
 PROMPTS["summarize_descriptions"] = """
 You are an expert in summarizing video segment descriptions. Your task is to extract segment information from the sequential video segment descriptions and merge them into a single video event description.
 
@@ -70,6 +75,26 @@ Please provide the response in one continuous paragraph.
 
 segment description in format of `start_time:end_time:description`:
 {inputs} 
+"""
+
+PROMPTS["summarize_suspicious_activities"] = """
+You are an expert in security analysis and threat detection from video surveillance. Your task is to analyze sequential video segment descriptions of human activities and identify potential suspicious, alarming, or dangerous behaviors that may indicate criminal activity, safety hazards, or emergency situations.
+
+### Analysis Guidelines:
+- Look for patterns that suggest suspicious intent: loitering, unusual timing (late night activities), attempting to hide or avoid detection, unauthorized access to restricted areas
+- Identify potential criminal activities: breaking and entering, theft, vandalism, assault, drug-related activities, trespassing
+- Detect safety emergencies: falls, medical emergencies, accidents, fires, people in distress, children in dangerous situations
+- Recognize abnormal behavioral patterns: erratic movements, carrying suspicious objects, multiple people coordinating unusual activities, fleeing scenes
+- Consider contextual factors: time of day, location appropriateness, duration of activities, number of people involved
+
+### Event Classification:
+Based on your analysis, classify the overall event as one of: SUSPICIOUS, ALARMING, CRIMINAL, EMERGENCY, or NORMAL, and explain the reasoning behind this classification.
+
+### Output Format:
+Provide a single continuous paragraph that summarizes the activities and clearly states why they are concerning, what type of threat they may represent, and the confidence level of your assessment.
+
+Segment descriptions in format of `start_time:end_time:description`:
+{inputs}
 """
 
 PROMPTS["keyword_extraction"] = """

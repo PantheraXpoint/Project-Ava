@@ -69,7 +69,7 @@ def batch_generate_descriptions(
             num_frames = global_config["video_chunk_num_frames"]
             frames, _, _ = video.get_frames_by_num(num_frames=num_frames, duration=duration)
             inputs = {
-                "text": PROMPTS["generate_description"],
+                "text": PROMPTS["generate_person_activity_description"],
                 "video": frames,
             }
             batch_inputs.append(inputs)
@@ -171,14 +171,14 @@ def semantic_chunking(
     summary_indices = []
     for i in range(len(partitions)):
         partition = partitions[i]
-        if partition[0] == partition[1]:
-            continue
-        else:
-            summary_indices.append(i)
-            prompt = PROMPTS["summarize_descriptions"].format(
-                inputs=[descriptions[j] for j in range(partition[0], partition[1])]
-            )
-            batch_inputs.append({"text": prompt})
+        # if partition[0] == partition[1]:
+        #     continue
+        # else:
+        summary_indices.append(i)
+        prompt = PROMPTS["summarize_suspicious_activities"].format(
+            inputs=[descriptions[j] for j in range(partition[0], partition[1])]
+        )
+        batch_inputs.append({"text": prompt})
     
     for i in range(max_retries):
         batch_summaries = llm.batch_generate_response(batch_inputs, max_new_tokens=1024, temperature=0.5, max_batch_size=batch_size)
@@ -254,16 +254,19 @@ def extract_events(
             return events
     
     # step 2: batched generate descriptions
+    descriptions_start_time = time.time()
     descriptions = batch_generate_descriptions(
         llm=llm,
         video=video,
         chunk_durations=chunk_durations,
         file_path=file_path,
-        batch_size=1,
+        batch_size=16,
         global_config=global_config,  
     )
-    
+    descriptions_end_time = time.time()
+    print(f"Time taken for descriptions: {descriptions_end_time - descriptions_start_time} seconds")
     # step 3: merge descriptions to events
+    events_start_time = time.time()
     events = semantic_chunking(
         llm=llm,
         video=video,
@@ -271,8 +274,9 @@ def extract_events(
         chunk_durations=chunk_durations,
         file_path=file_path,
         global_config=global_config,
-        batch_size=1,
+        batch_size=16,
     )
-    
+    events_end_time = time.time()
+    print(f"Time taken for semantic chunking: {events_end_time - events_start_time} seconds")
     return events
     
