@@ -139,10 +139,11 @@ class AVA:
         """
         construct from the video directory
         """
+        profiling = {}
         try:
             logger.info(f"Constructing Graph with working directory: {self.working_dir}")
             
-            self.kg = extract_knowledge_graph(
+            self.kg, profiling = extract_knowledge_graph(
                 llm=self.llm_model,
                 embedding_model=self.text_embedding_model,
                 knowledge_graph_inst=self.video_knowledge_graph,
@@ -152,6 +153,7 @@ class AVA:
                 features_vdb=self.features_vdb,
                 global_config=self.global_config,
             )
+            return profiling
         finally:
             self._insert_done()
             # pass

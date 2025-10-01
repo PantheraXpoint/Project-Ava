@@ -107,8 +107,9 @@ def semantic_chunking(
     reprocess: bool = False,
     window_size: int = 8,
     max_retries: int = 5,
-    batch_size: int = 64,
+    batch_size: int = 16,
 ):
+    profiling: dict = {}
     source_file = os.path.join(file_path, "events.json")
     scores_file = os.path.join(file_path, "scores.json")
     
@@ -131,15 +132,16 @@ def semantic_chunking(
     scorer = BERTScorer(model_type="microsoft/deberta-xlarge-mnli", lang="en")
     
     # cal bert score within window_size
+    profiling["cal_bert_score"] = time.time()
     description_list1 = []
     description_list2 = []
     for i in range(len(unmerged_descriptions)):
         for j in range(i+1, min(i + 1 + window_size, len(unmerged_descriptions))):
             description_list1.append(unmerged_descriptions[i])
             description_list2.append(unmerged_descriptions[j])
-    _, recall, _ = scorer.score(description_list1, description_list2)
+    _, recall, _ = scorer.score(description_list1, description_list2, batch_size=batch_size)
     recall = recall.tolist()
-    
+    profiling["cal_bert_score"] = time.time() - profiling["cal_bert_score"]
     scores_metric = [[0.0] * len(unmerged_descriptions) for _ in range(len(unmerged_descriptions))]
     unsed_count = 0
     for i in range(len(unmerged_descriptions)):
@@ -166,7 +168,7 @@ def semantic_chunking(
         partitions.append((start_index, end_index-1))
         start_index = end_index
     
-    
+    profiling["summarize_descriptions"] = time.time()
     batch_inputs = []
     summary_indices = []
     for i in range(len(partitions)):
@@ -186,7 +188,7 @@ def semantic_chunking(
             break
         else:
             print(f"Attempt {i} failed. Retrying...")
-    
+    profiling["summarize_descriptions"] = time.time() - profiling["summarize_descriptions"]
     for i in range(len(partitions)):
         partition = partitions[i]
         if partition[0] == partition[1]:
@@ -215,7 +217,7 @@ def semantic_chunking(
         json.dump(scores_metric, f, indent=4)
     
     events = format_events(events)
-    return events
+    return events, profiling
     
 def format_events(events):
     if events:
@@ -235,6 +237,7 @@ def extract_events(
     video:VideoRepresentation,
     global_config:dict,
 ):
+    profiling: dict = {}
     # step 1: get small chunk durations
     chunk_durations = get_chunk_timestamp(
         video=video,
@@ -251,20 +254,24 @@ def extract_events(
             events = json.load(f)
             
             events = format_events(events)
-            return events
+            return events, profiling
     
     # step 2: batched generate descriptions
+    profiling["batch_generate_descriptions"] = time.time()
     descriptions = batch_generate_descriptions(
         llm=llm,
         video=video,
         chunk_durations=chunk_durations,
         file_path=file_path,
-        batch_size=64,
+        batch_size=16,
         global_config=global_config,  
     )
+    profiling["batch_generate_descriptions"] = time.time() - profiling["batch_generate_descriptions"]
     
     # step 3: merge descriptions to events
-    events = semantic_chunking(
+    profiling["semantic_chunking"] = {}
+    profiling["semantic_chunking"]["total"] = time.time()
+    events, profiling_semantic_chunking = semantic_chunking(
         llm=llm,
         video=video,
         descriptions=descriptions,
@@ -272,6 +279,7 @@ def extract_events(
         file_path=file_path,
         global_config=global_config,
     )
-    
-    return events
+    profiling["semantic_chunking"]["total"] = time.time() - profiling["semantic_chunking"]["total"]
+    profiling["semantic_chunking"].update(profiling_semantic_chunking)
+    return events, profiling
     

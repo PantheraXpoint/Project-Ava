@@ -46,13 +46,18 @@ def clusters_by_kmeans(
     mode="text",
 ):
     assert 0 < compression_ratio <= 1, "Compression ratio must be between 0 and 1."
+    profiling: dict = {}
+    profiling["get_entity_embeddings"] = time.time()
     embeddings = get_entity_embeddings(entities, embedding_model, mode=mode)
-    
+    profiling["get_entity_embeddings"] = time.time() - profiling["get_entity_embeddings"]
+
     n_samples = len(embeddings)
     n_clusters = max(1, int(n_samples * compression_ratio))
     
     keams = KMeans(n_clusters=n_clusters)
+    profiling["keams.fit"] = time.time()
     keams.fit(embeddings)
+    profiling["keams.fit"] = time.time() - profiling["keams.fit"]
     labels = keams.labels_.tolist()
     
     merged_entities = []
@@ -88,7 +93,7 @@ def clusters_by_kmeans(
             if relation["entity2"] in cluster_entity_ids:
                 relation["entity2"] = new_id
     
-    return merged_entities, relations
+    return merged_entities, relations, profiling
 
 #################################################################################################
 
@@ -335,6 +340,7 @@ def extract_entities_and_relations(
     video: VideoRepresentation,
     global_config: dict,
 ):
+    profiling: dict = {}
     file_path = os.path.join(global_config["working_dir"], "entities")
     if not os.path.exists(file_path):
         os.makedirs(file_path)
@@ -346,12 +352,13 @@ def extract_entities_and_relations(
         with open(os.path.join(file_path, "relations.json"), "r") as f:
             relations = json.load(f)
             
-        return entities, relations
+        return entities, relations, profiling
     
     # extract entities and relations
     unmerged_entities_file = os.path.join(file_path, "unmerged_entities.json")
     unmerged_relations_file = os.path.join(file_path, "unmerged_relations.json")
     
+    profiling["batch_generate_entities_and_relations"] = time.time()
     unmerged_entities, unmerged_relations = batch_generate_entities_and_relations(
         llm=llm,
         events=events,
@@ -359,14 +366,16 @@ def extract_entities_and_relations(
         file_path=file_path,
         global_config=global_config,
     )
-    
+    profiling["batch_generate_entities_and_relations"] = time.time() - profiling["batch_generate_entities_and_relations"]
     with open(unmerged_entities_file, "w") as f:
         json.dump(unmerged_entities, f, indent=4)
     
     with open(unmerged_relations_file, "w") as f:
         json.dump(unmerged_relations, f, indent=4)
     
-    merged_entities, merged_relations = clusters_by_kmeans(
+    profiling["clusters_by_kmeans"] = {}
+    profiling["clusters_by_kmeans"]["total"] = time.time()
+    merged_entities, merged_relations, profiling_clusters_by_kmeans = clusters_by_kmeans(
         entities=unmerged_entities,
         relations=unmerged_relations,
         embedding_model=embedding_model,
@@ -375,7 +384,8 @@ def extract_entities_and_relations(
         compression_ratio=0.4,
         mode="text",
     )
-    
+    profiling["clusters_by_kmeans"]["total"] = time.time() - profiling["clusters_by_kmeans"]["total"]
+    profiling["clusters_by_kmeans"].update(profiling_clusters_by_kmeans)
     entities_file = os.path.join(file_path, "entities.json")
     relations_file = os.path.join(file_path, "relations.json")
     
@@ -385,4 +395,4 @@ def extract_entities_and_relations(
     with open(relations_file, "w") as f:
         json.dump(merged_relations, f, indent=4)
         
-    return merged_entities, merged_relations
+    return merged_entities, merged_relations, profiling

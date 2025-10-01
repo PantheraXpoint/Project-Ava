@@ -2,6 +2,8 @@ from AVA.ava import AVA
 import argparse
 from dataset.init_dataset import init_dataset
 from llms.init_model import init_model
+import json
+import os
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -21,6 +23,6 @@ if __name__ == "__main__":
         video=video,
         llm_model=llm,
     )
-    ava.construct()
-    
-    
+    profiling = ava.construct()
+    with open(os.path.join(video.work_dir, f"profiling_{args.dataset}_{args.model}_{args.video_id}.json"), "w") as f:
+        json.dump(profiling, f, indent=4)
