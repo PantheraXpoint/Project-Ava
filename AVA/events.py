@@ -129,8 +129,9 @@ def semantic_chunking(
     reprocess: bool = False,
     window_size: int = 8,
     max_retries: int = 5,
-    batch_size: int = 64,
+    batch_size: int = 16,
 ):
+    profiling: dict = {}
     source_file = os.path.join(file_path, "events.json")
     scores_file = os.path.join(file_path, "scores.json")
     
@@ -153,6 +154,7 @@ def semantic_chunking(
     scorer = BERTScorer(model_type="microsoft/deberta-xlarge-mnli", lang="en", rescale_with_baseline=True)
     
     # cal bert score within window_size
+    profiling["cal_bert_score"] = time.time()
     description_list1 = []
     description_list2 = []
     for i in range(len(unmerged_descriptions)):
@@ -161,7 +163,7 @@ def semantic_chunking(
             description_list2.append(unmerged_descriptions[j])
     _, recall, _ = scorer.score(description_list1, description_list2, batch_size=batch_size)
     recall = recall.tolist()
-    
+    profiling["cal_bert_score"] = time.time() - profiling["cal_bert_score"]
     scores_metric = [[0.0] * len(unmerged_descriptions) for _ in range(len(unmerged_descriptions))]
     unsed_count = 0
     for i in range(len(unmerged_descriptions)):
@@ -188,7 +190,7 @@ def semantic_chunking(
         partitions.append((start_index, end_index-1))
         start_index = end_index
     
-    
+    profiling["summarize_descriptions"] = time.time()
     batch_inputs = []
     summary_indices = []
     for i in range(len(partitions)):
@@ -208,7 +210,7 @@ def semantic_chunking(
             break
         else:
             print(f"Attempt {i} failed. Retrying...")
-    
+    profiling["summarize_descriptions"] = time.time() - profiling["summarize_descriptions"]
     for i in range(len(partitions)):
         partition = partitions[i]
         if partition[0] == partition[1]:
@@ -237,7 +239,7 @@ def semantic_chunking(
         json.dump(scores_metric, f, indent=4)
     
     events = format_events(events)
-    return events
+    return events, profiling
     
 def format_events(events):
     if events:
@@ -257,6 +259,7 @@ def extract_events(
     video:VideoRepresentation,
     global_config:dict,
 ):
+    profiling: dict = {}
     # step 1: get small chunk durations
     chunk_durations = get_chunk_timestamp(
         video=video,

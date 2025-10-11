@@ -31,30 +31,34 @@ def extract_knowledge_graph(
         global_config: dict,
         if_check: bool = True
 )->Union[BaseGraphStorage]:
-    
+    profiling: dict = {}
     if events_vdb.is_empty() or if_check:
-        events_start_time = time.time()
-        events = extract_events(
+        profiling["extract_events"] = {}
+        profiling["extract_events"]["total"] = time.time()
+        events, profiling_extract_events = extract_events(
             llm=llm,
             video=global_config["video"],
             global_config=global_config,
         )
-        events_end_time = time.time()
-        print(f"Time taken for events: {events_end_time - events_start_time} seconds")
+        profiling["extract_events"]["total"] = time.time() - profiling["extract_events"]["total"]
+        profiling["extract_events"].update(profiling_extract_events)
+        print(profiling["extract_events"])
     else:
         events = events_vdb.get_datas()
     
     if entities_vdb.is_empty() or relations_vdb.is_empty() or if_check:
-        entities_start_time = time.time()
-        entities, relations = extract_entities_and_relations(
+        profiling["extract_entities_and_relations"] = {}
+        profiling["extract_entities_and_relations"]["total"] = time.time()
+        entities, relations, profiling_extract_entities_and_relations = extract_entities_and_relations(
             llm=llm,
             embedding_model=embedding_model,
             events=events,
             video=global_config["video"],
             global_config=global_config,
         )
-        entities_end_time = time.time()
-        print(f"Time taken for entities: {entities_end_time - entities_start_time} seconds")
+        profiling["extract_entities_and_relations"]["total"] = time.time() - profiling["extract_entities_and_relations"]["total"]
+        profiling["extract_entities_and_relations"].update(profiling_extract_entities_and_relations)
+        print(profiling["extract_entities_and_relations"])
     else:
         entities = entities_vdb.get_datas()
         relations = relations_vdb.get_datas()
@@ -101,6 +105,7 @@ def extract_knowledge_graph(
     
     # add to features vdb
     if features_vdb.is_empty():
+        profiling["extract_features"] = time.time()
         video = global_config["video"]
         datas_for_vdb = {}
         frame_path = video.frames_dir
@@ -118,6 +123,7 @@ def extract_knowledge_graph(
                 }
         
         features_vdb.upsert(datas_for_vdb)
+        profiling["extract_features"] = time.time() - profiling["extract_features"]
     
     for event in events:
         if not knowledge_graph_inst.has_node(event["id"]):
@@ -179,7 +185,7 @@ def extract_knowledge_graph(
                 }
             )
     
-    return knowledge_graph_inst
+    return knowledge_graph_inst, profiling
 
 def tree_search(
     query: str,

@@ -183,4 +183,5 @@ datas/*/videos/*
 /outputs
 /outputs/*
 
-/test*
+/test*AVA_cache/
+datas/
