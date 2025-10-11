@@ -56,7 +56,7 @@ class AVA:
     # video chunking
     video_chunk_duration: int = field(default=3) # seconds
     video_chunk_overlap: int = field(default=0) # seconds
-    video_chunk_num_frames: int = field(default=6) # seconds
+    video_chunk_num_frames: int = field(default=12) # seconds
     entity_extraction_num_frames: int = field(default=8)
     
     event_merge_algorithm: str = field(default="partition")

@@ -58,23 +58,46 @@ The description should cover the main scenes, characters, objects, and any notab
 
 PROMPTS["generate_person_activity_description"] = """
 You are an expert in human activity recognition and behavioral analysis in videos. 
-Your task is to provide a detailed, continuous description focusing specifically on what people are doing in the video. Describe human actions, movements, gestures, interactions between people, their body language, and any activities they are engaged in. Pay attention to how people move through the space, their postures, facial expressions (if visible), and the sequence of actions they perform. If multiple people are present, describe how they interact with each other and coordinate their activities. Focus on the purpose and nature of their actions rather than static descriptions of their appearance. The description should flow naturally and capture the progression of human activities throughout the video. Return your response as a single, continuous paragraph that comprehensively describes all person-centered activities, limited to 300 words.
+Your task is to provide a continuous description of what people are doing in the video. 
+
+Instructions:
+1. For each tracked person in the input, describe their actions, body language, and interactions with others. 
+2. Always refer to individuals as "Person <track_id>" (e.g., "Person 1", "Person 2") so the description is directly linked to the object tracking ID. 
+3. Pay special attention to **temporal progression**: explain how the actions evolve across the given time segment. 
+4. Highlight **cause–effect relationships**: if one person’s movement or state triggers another’s reaction, make this explicit. 
+5. If **audio event detections are provided**, integrate them naturally into the description (e.g., “Person 1 is crying” or “a baby is sobbing in the background”).  
+   If no audio events are present, focus only on visual actions and interactions. 
+6. You may mention appearance attributes (clothing, age, gender, etc.) if they help distinguish individuals. 
+7. Focus on describing activities, movement, and interactions rather than static appearance alone. 
+8. Be especially attentive to **critical incidents** such as:
+   - A person unexpectedly collapsing or falling.  
+   - A person attempting to abduct or kidnap another.  
+   - A person stealing or acting as a thief (e.g., taking an item without consent).  
+
+Here are the inputs:
+{inputs}
+
+Write your answer as a series of linked action summaries, one per person, using this format:
+- Person 1: [description]
+- Person 2: [description]
+- Person 3: [description]
 """
 
 PROMPTS["summarize_descriptions"] = """
-You are an expert in summarizing video segment descriptions. Your task is to extract segment information from the sequential video segment descriptions and merge them into a single video event description.
+You are an expert in summarizing video segment descriptions. Your task is to merge sequential segment descriptions into a single compact event summary.
 
 ### Event Description Guidelines:
-- If the content continues the same scene or content, MERGE then and DON'T duplicate the information.
-- The tone of the event description should be as if you are directly describing the video event. Provide a comprehensive narrative of the merged events without separating the content into distinct segments or using line breaks to list different aspects.
-- Refrain from using phrases such as "At 2.0 seconds...", "By 10.0 seconds...", "The first/last segment", "The second event begins with...", "The final frames of this segment" or ohter time-related words, which will make the event content fragmented.
-- Only provide objective information, avoiding subjective interpretations like mood or atmosphere.
+- Only include information that is **significant, unusual, or worth raising an alarm** (e.g., falling, kidnapping, theft, assault, distress, crying).
+- Discard redundant or minor details (e.g., clothing color, screen position, background movement) unless they are essential to understanding the event.
+- Summarize in **no more than 1 sentence** that provide the clearest possible picture of the event.
+- The description should read like a direct alert of what happened, not a timeline of segments. Do not mention times, segments, or positions in the frame.
+- Provide **objective facts only**, without speculation or emotional language.
 
 ### Output Format:
-Please provide the response in one continuous paragraph.
+Write a single compact sentence describing the merged event.
 
-segment description in format of `start_time:end_time:description`:
-{inputs} 
+Segment descriptions (format: `start_time:end_time:description`):
+{inputs}
 """
 
 PROMPTS["summarize_suspicious_activities"] = """

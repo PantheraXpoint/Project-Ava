@@ -8,6 +8,7 @@ from video_utils import VideoRepresentation
 from .prompt import PROMPTS
 from bert_score import score, BERTScorer
 from .utils import compute_mdhash_id, clean_str
+from crying import predict_audio_chunks, extract_audio_from_mp4
 
 def get_chunk_timestamp(video, chunk_duration, chunk_overlap):
     video_config = video.config
@@ -41,7 +42,8 @@ def batch_generate_descriptions(
     file_path: str,
     batch_size: int,
     global_config: dict,
-    max_retries: int = 5
+    max_retries: int = 5,
+    sound_detections: list = None,
 ):
     """
     batch generate dense descriptions for each chunk
@@ -67,9 +69,29 @@ def batch_generate_descriptions(
 
         for duration in batch_timestamps:
             num_frames = global_config["video_chunk_num_frames"]
-            frames, _, _ = video.get_frames_by_num(num_frames=num_frames, duration=duration)
+            frames, _, frame_indices = video.get_frames_by_num(num_frames=num_frames, duration=duration)
+            # Read a JSON file
+            # Example: read a file named "input.json" in the current directory
+            json_file_path = os.path.join("../TrackandLog/YOLO-World/onnx_outputs/log_data_child_fall_1.json")
+            if os.path.exists(json_file_path):
+                with open(json_file_path, "r") as jf:
+                    input_json_data = json.load(jf)
+            else:
+                input_json_data = None
+            track_data = []
+            for value in input_json_data:
+                if value['frame_number'] in frame_indices:
+                    track_data.append(value)
+            if sound_detections:
+                for detection in sound_detections:
+                    if detection["chunk_start_sec"] >= duration[0] and detection["chunk_end_sec"] <= duration[1]:
+                        track_data.append(detection)
+            prompt_template = PROMPTS["generate_person_activity_description"]
+            prompt_template = prompt_template.format(inputs=str(track_data))
+            print(prompt_template)
+            print("-"*50)
             inputs = {
-                "text": PROMPTS["generate_person_activity_description"],
+                "text": prompt_template,
                 "video": frames,
             }
             batch_inputs.append(inputs)
@@ -128,7 +150,7 @@ def semantic_chunking(
     
     unmerged_descriptions = [descriptions[i] for i in range(num_merged_descriptions, len(descriptions))]
     
-    scorer = BERTScorer(model_type="microsoft/deberta-xlarge-mnli", lang="en")
+    scorer = BERTScorer(model_type="microsoft/deberta-xlarge-mnli", lang="en", rescale_with_baseline=True)
     
     # cal bert score within window_size
     description_list1 = []
@@ -175,7 +197,7 @@ def semantic_chunking(
         #     continue
         # else:
         summary_indices.append(i)
-        prompt = PROMPTS["summarize_suspicious_activities"].format(
+        prompt = PROMPTS["summarize_descriptions"].format(
             inputs=[descriptions[j] for j in range(partition[0], partition[1])]
         )
         batch_inputs.append({"text": prompt})
@@ -252,6 +274,18 @@ def extract_events(
             
             events = format_events(events)
             return events
+
+    # get the wav file
+    wav_file = extract_audio_from_mp4(video.video_source_path)
+    detections = predict_audio_chunks(wav_file, chunk_sec=global_config["video_chunk_duration"])
+    if detections:
+        print("⚠️ Audio anomalies detected:")
+        for d in detections:
+            print(f"[{d['chunk_start_sec']:.1f}s → {d['chunk_end_sec']:.1f}s]")
+            for label, score in d["detections"]:
+                print(f"   - {label} (confidence {score:.2f})")
+    else:
+        print("✅ No audio anomalies detected.")
     
     # step 2: batched generate descriptions
     descriptions_start_time = time.time()
@@ -261,7 +295,8 @@ def extract_events(
         chunk_durations=chunk_durations,
         file_path=file_path,
         batch_size=16,
-        global_config=global_config,  
+        global_config=global_config,
+        sound_detections=detections,
     )
     descriptions_end_time = time.time()
     print(f"Time taken for descriptions: {descriptions_end_time - descriptions_start_time} seconds")
