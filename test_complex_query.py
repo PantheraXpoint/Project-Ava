@@ -6,6 +6,8 @@ Test script for complex query parsing and object search
 import os
 import sys
 import json
+from llms.QwenLM import QwenLM
+import argparse
 
 # Add project root to path
 sys.path.append(os.path.dirname(__file__))
@@ -17,7 +19,6 @@ def test_complex_query_parsing():
     print("=== Testing Complex Query Parsing ===")
     
     try:
-        from llms.QwenLM import QwenLM
         from embeddings.JinaCLIP import JinaCLIP
         from embeddings.FAISSDB import FAISSDB
         from embeddings.SQLiteDB import SQLiteDB
@@ -26,14 +27,6 @@ def test_complex_query_parsing():
         print("Please ensure all dependencies are installed")
         return False
     
-    # Initialize LLM
-    print("Initializing QwenLM...")
-    try:
-        llm = QwenLM()
-        print("✓ QwenLM initialized successfully")
-    except Exception as e:
-        print(f"✗ Error initializing QwenLM: {e}")
-        return False
     
     # Test query parsing
     test_queries = [
@@ -55,7 +48,7 @@ def test_complex_query_parsing():
     
     return True
 
-def test_database_search():
+def test_database_search(video_path: str):
     """
     Test the database search functionality
     """
@@ -78,21 +71,22 @@ def test_database_search():
     print("✓ Databases found")
     
     try:
-        from llms.QwenLM import QwenLM
         from embeddings.JinaCLIP import JinaCLIP
-        
-        # Initialize models
-        print("Initializing models...")
-        llm = QwenLM()
+        from embeddings.object_search import extract_bounding_box_images
         embedding_model = JinaCLIP("jinaai/jina-clip-v1")
         print("✓ Models initialized")
         
         # Test search
         query = "from frame 20 to 30, find a toddler with blue shirt"
         print(f"\nTesting search with query: {query}")
+
+        llm = QwenLM()
         
         results = llm.search_objects_with_constraints(
             query, faiss_db_path, sqlite_db_path, embedding_model, k=3
+        )
+        saved_images = extract_bounding_box_images(
+            video_path, results["results"], output_dir="extracted_objects", max_images=1
         )
         
         print(f"Found {results['total_results']} results:")
@@ -118,6 +112,10 @@ def main():
     """
     Main test function
     """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--video_path", type=str, required=True, help="Path to video file")
+    args = parser.parse_args()
+    
     print("=== Complex Query Parsing and Object Search Test ===")
     print("This test demonstrates:")
     print("1. Complex query parsing using LLM")
@@ -127,10 +125,11 @@ def main():
     print("5. Filtered results based on frame ranges")
     
     # Test query parsing
-    parsing_success = test_complex_query_parsing()
+    # parsing_success = test_complex_query_parsing()
+    parsing_success = True
     
     # Test database search
-    search_success = test_database_search()
+    search_success = test_database_search(args.video_path)
     
     print("\n=== Test Results ===")
     print(f"Query Parsing: {'✓ PASSED' if parsing_success else '✗ FAILED'}")

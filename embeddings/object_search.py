@@ -65,77 +65,6 @@ class ObjectSearch:
         
         return results
     
-    def extract_bounding_box_images(self, video_path: str, search_results: List[Dict], 
-                                  output_dir: str, max_images: int = 10) -> List[str]:
-        """
-        Extract and save bounding box images from video based on search results
-        
-        Args:
-            video_path: Path to original video file
-            search_results: Results from search_by_description
-            output_dir: Directory to save extracted images
-            max_images: Maximum number of images to extract per track
-            
-        Returns:
-            List of paths to saved images
-        """
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        
-        saved_images = []
-        cap = cv2.VideoCapture(video_path)
-        
-        if not cap.isOpened():
-            print(f"Error: Could not open video file {video_path}")
-            return saved_images
-        
-        for result in search_results:
-            track_id = result['track_id']
-            bbox_history = result['bbox_history']
-            frame_numbers = result['frame_numbers']
-            class_name = result['class_name']
-            
-            # Limit number of images to extract
-            num_images = min(len(frame_numbers), max_images)
-            step = max(1, len(frame_numbers) // num_images)
-            
-            for i in range(0, len(frame_numbers), step):
-                frame_num = frame_numbers[i]
-                bbox = bbox_history[i]
-                
-                # Seek to specific frame
-                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
-                ret, frame = cap.read()
-                
-                if not ret:
-                    continue
-                
-                # Extract bounding box
-                x1, y1, x2, y2 = map(int, bbox)
-                
-                # Ensure coordinates are within frame bounds
-                h, w = frame.shape[:2]
-                x1 = max(0, min(x1, w-1))
-                y1 = max(0, min(y1, h-1))
-                x2 = max(x1+1, min(x2, w))
-                y2 = max(y1+1, min(y2, h))
-                
-                # Extract ROI
-                roi = frame[y1:y2, x1:x2]
-                
-                if roi.size > 0:
-                    frame_with_bbox = frame.copy()
-                    cv2.rectangle(frame_with_bbox, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(frame_with_bbox, f"ID:{track_id} {class_name}", 
-                               (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                    
-                    bbox_filename = f"track_{track_id}_frame_{frame_num}_{class_name}_bbox.jpg"
-                    bbox_filepath = os.path.join(output_dir, bbox_filename)
-                    cv2.imwrite(bbox_filepath, frame_with_bbox)
-                    saved_images.append(bbox_filepath)
-        
-        cap.release()
-        return saved_images
     
     def search_and_extract(self, description: str, video_path: str, output_dir: str, 
                           k: int = 5, max_images: int = 10) -> Tuple[List[Dict], List[str]]:
@@ -162,7 +91,7 @@ class ObjectSearch:
         print(f"Found {len(search_results)} objects matching description: {description}")
         
         # Extract images
-        saved_images = self.extract_bounding_box_images(
+        saved_images = extract_bounding_box_images(
             video_path, search_results, output_dir, max_images
         )
         
@@ -201,3 +130,77 @@ class ObjectSearch:
             'total_frames_tracked': total_frames,
             'average_track_length': total_frames / len(all_objects) if all_objects else 0
         }
+
+
+def extract_bounding_box_images(video_path: str, search_results: List[Dict], 
+                                  output_dir: str, max_images: int = 10) -> List[str]:
+    """
+    Extract and save bounding box images from video based on search results
+    
+    Args:
+        video_path: Path to original video file
+        search_results: Results from search_by_description
+        output_dir: Directory to save extracted images
+        max_images: Maximum number of images to extract per track
+        
+    Returns:
+        List of paths to saved images
+    """
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    saved_images = []
+    cap = cv2.VideoCapture(video_path)
+    
+    if not cap.isOpened():
+        print(f"Error: Could not open video file {video_path}")
+        return saved_images
+    
+    for result in search_results:
+        track_id = result['track_id']
+        bbox_history = result.get('bbox_history', result.get('filtered_bboxes', []))
+        frame_numbers = result.get('frame_numbers', result.get('filtered_frames', []))
+        class_name = result['class_name']
+        
+        # Limit number of images to extract
+        num_images = min(len(frame_numbers), max_images)
+        step = max(1, len(frame_numbers) // num_images)
+        
+        for i in range(0, len(frame_numbers), step):
+            frame_num = frame_numbers[i]
+            bbox = bbox_history[i]
+            
+            # Seek to specific frame
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+            ret, frame = cap.read()
+            
+            if not ret:
+                continue
+            
+            # Extract bounding box
+            x1, y1, x2, y2 = map(int, bbox)
+            
+            # Ensure coordinates are within frame bounds
+            h, w = frame.shape[:2]
+            x1 = max(0, min(x1, w-1))
+            y1 = max(0, min(y1, h-1))
+            x2 = max(x1+1, min(x2, w))
+            y2 = max(y1+1, min(y2, h))
+            
+            # Extract ROI
+            roi = frame[y1:y2, x1:x2]
+            
+            if roi.size > 0:
+                frame_with_bbox = frame.copy()
+                cv2.rectangle(frame_with_bbox, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(frame_with_bbox, f"ID:{track_id} {class_name}", 
+                            (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                
+                bbox_filename = f"track_{track_id}_frame_{frame_num}_{class_name}_bbox.jpg"
+                bbox_filepath = os.path.join(output_dir, bbox_filename)
+                cv2.imwrite(bbox_filepath, frame_with_bbox)
+                print(f"Saved image to {bbox_filepath}")
+                saved_images.append(bbox_filepath)
+    
+    cap.release()
+    return saved_images
