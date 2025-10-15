@@ -118,6 +118,45 @@ def batch_generate_descriptions(
 
     return descriptions
 
+def batch_generate_descriptions_external(
+    llm: BaseVideoModel,
+    batch_size: int,
+    video_chunk_num_frames: int,
+    frame_indices: list = None,
+    frames: list = None,
+):
+    """
+    batch generate dense descriptions for each chunk
+    """    
+    batch_inputs = []
+    
+    print(f"Generating descriptions")
+
+    num_frames = video_chunk_num_frames
+    for batch_idx in range(num_frames//batch_size):
+        frames_batch = frames[batch_idx * batch_size:(batch_idx + 1) * batch_size]
+        frame_indices_batch = frame_indices[batch_idx * batch_size:(batch_idx + 1) * batch_size]
+        prompt_template = PROMPTS["generate_description"]
+        print(prompt_template)
+        print("-"*50)
+        inputs = {
+            "text": prompt_template,
+            "video": frames_batch,
+        }
+        batch_inputs.append(inputs)
+
+    try:
+        batch_descriptions = llm.batch_generate_response(batch_inputs, max_new_tokens=512, temperature=0.5)
+    except Exception as e:
+        print(f"Error generating descriptions: {e}")
+    descriptions = []
+    for i in range(len(batch_descriptions)):
+        descriptions.append({
+            "duration": [frame_indices[i], frame_indices[i + batch_size - 1]],
+            "description": batch_descriptions[i],
+        })
+    return descriptions
+
 def semantic_chunking(
     llm: BaseVideoModel,
     video: VideoRepresentation,
@@ -254,7 +293,7 @@ def format_events(events):
         return formatted_events
         
 
-def extract_events(
+def extract_events_with_audio(
     llm:BaseVideoModel,
     video:VideoRepresentation,
     global_config:dict,
@@ -313,6 +352,38 @@ def extract_events(
         file_path=file_path,
         global_config=global_config,
         batch_size=16,
+    )
+    events_end_time = time.time()
+    print(f"Time taken for semantic chunking: {events_end_time - events_start_time} seconds")
+    return events
+    
+def extract_events(
+    llm:BaseVideoModel,
+    video:VideoRepresentation,
+    global_config:dict,
+):
+    file_path = os.path.join(global_config["working_dir"], "events")
+    descriptions_start_time = time.time()
+    descriptions = batch_generate_descriptions(
+        llm=llm,
+        video=video,
+        chunk_durations=chunk_durations,
+        file_path=file_path,
+        batch_size=12,
+        global_config=global_config,
+    )
+    descriptions_end_time = time.time()
+    print(f"Time taken for descriptions: {descriptions_end_time - descriptions_start_time} seconds")
+    # step 3: merge descriptions to events
+    events_start_time = time.time()
+    events = semantic_chunking(
+        llm=llm,
+        video=video,
+        descriptions=descriptions,
+        chunk_durations=chunk_durations,
+        file_path=file_path,
+        global_config=global_config,
+        batch_size=12,
     )
     events_end_time = time.time()
     print(f"Time taken for semantic chunking: {events_end_time - events_start_time} seconds")

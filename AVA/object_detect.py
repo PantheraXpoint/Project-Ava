@@ -289,6 +289,34 @@ class ObjectDetectorTracker:
 
         return all_tracked_objects
     
+    def process_frame(self, frame: np.ndarray, frame_count: int):
+        # Detect and track objects
+        tracked_objects = self.detect_and_track(frame)
+        
+        # Store tracked objects with history
+        for tracked_object in tracked_objects:
+            track_id = tracked_object["track_id"]
+            bbox = [int(coord) for coord in tracked_object["bbox"]]
+            confidence = tracked_object["confidence"]
+            track_id_exists = track_id in self.all_tracked_objects
+            if not track_id_exists:
+                self.all_tracked_objects[track_id] = {
+                    "class_id": tracked_object["class_id"],
+                    "class_name": tracked_object["class_name"],
+                    "bbox_history": [bbox],
+                    "confidence_history": [confidence],
+                    "frame_numbers": [frame_count]
+                }
+                # Generate embedding for new track and add to FAISS database
+                self._generate_embedding(frame, bbox, track_id, frame_count, confidence, tracked_object)
+            else:
+                # Append to existing track
+                self.all_tracked_objects[track_id]["bbox_history"].append(bbox)
+                self.all_tracked_objects[track_id]["confidence_history"].append(confidence)
+                self.all_tracked_objects[track_id]["frame_numbers"].append(frame_count)
+            # Add tracked object to SQLite database
+            self._add_tracked_object(tracked_object)
+
     def process_video_tracking_only(self, video_path: str) -> List[List[Dict]]:
         """
         Process a video file for object detection and tracking without saving video or visualization
@@ -336,32 +364,8 @@ class ObjectDetectorTracker:
             
             # Only process every frame_skip frames for 10fps processing
             if frame_count % frame_skip == 0:
-                # Detect and track objects
-                tracked_objects = self.detect_and_track(frame)
                 
-                # Store tracked objects with history
-                for tracked_object in tracked_objects:
-                    track_id = tracked_object["track_id"]
-                    bbox = [int(coord) for coord in tracked_object["bbox"]]
-                    confidence = tracked_object["confidence"]
-                    track_id_exists = track_id in self.all_tracked_objects
-                    if not track_id_exists:
-                        self.all_tracked_objects[track_id] = {
-                            "class_id": tracked_object["class_id"],
-                            "class_name": tracked_object["class_name"],
-                            "bbox_history": [bbox],
-                            "confidence_history": [confidence],
-                            "frame_numbers": [frame_count]
-                        }
-                        # Generate embedding for new track and add to FAISS database
-                        self._generate_embedding(frame, bbox, track_id, frame_count, confidence, tracked_object)
-                    else:
-                        # Append to existing track
-                        self.all_tracked_objects[track_id]["bbox_history"].append(bbox)
-                        self.all_tracked_objects[track_id]["confidence_history"].append(confidence)
-                        self.all_tracked_objects[track_id]["frame_numbers"].append(frame_count)
-                    # Add tracked object to SQLite database
-                    self._add_tracked_object(tracked_object)
+                self.process_frame(frame, frame_count)
                 
                 processed_frame_count += 1
                 
@@ -440,39 +444,6 @@ class ObjectDetectorTracker:
                     
             except Exception as e:
                 print(f"Error generating embedding for track {track_id}: {e}")
-    
-    def process_image(self, image_path: str, output_path: str) -> None:
-        """
-        Process a single image for object detection and tracking
-        
-        Args:
-            image_path: Path to input image
-            output_path: Path to save output image
-        """
-        # Read image
-        frame = cv2.imread(image_path)
-        if frame is None:
-            print(f"Error: Could not open image file {image_path}")
-            return
-        
-        print(f"Processing image: {image_path}")
-        
-        # Detect and track objects
-        tracked_objects = self.detect_and_track(frame)
-        
-        # Visualize results
-        vis_frame = self.visualize_results(frame, tracked_objects)
-        
-        # Add info text
-        info_text = f"Objects: {len(tracked_objects)}"
-        cv2.putText(vis_frame, info_text, (10, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
-        # Save output image
-        cv2.imwrite(output_path, vis_frame)
-        print(f"Output image saved to: {output_path}")
-        print(f"Detected {len(tracked_objects)} objects")
-
 
 def main():
     """Main function for testing the ObjectDetectorTracker"""

@@ -7,6 +7,13 @@ import os
 import sys
 import argparse
 from typing import List, Dict
+import cv2
+import time
+from dataset.init_dataset import init_dataset
+from llms.init_model import init_model
+from AVA.ava import AVA
+from AVA.events import batch_generate_descriptions_external
+from PIL import Image
 
 # Add embeddings directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'embeddings'))
@@ -14,8 +21,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'embeddings'))
 from JinaCLIP import JinaCLIP
 from embeddings.object_search import ObjectSearch
 from AVA.object_detect import ObjectDetectorTracker
+from AVA.event_tracker import EventTracker
 
-def process_video_with_embeddings(video_path: str, faiss_db_path: str = "embeddings.faiss", 
+def process_video(video_path: str, faiss_db_path: str = "embeddings.faiss", 
                                  sqlite_db_path: str = "tracked_objects.db"):
     """
     Process video with embedding generation for new track IDs
@@ -43,9 +51,84 @@ def process_video_with_embeddings(video_path: str, faiss_db_path: str = "embeddi
         faiss_db_path=faiss_db_path,
         sqlite_db_path=sqlite_db_path
     )
-    
+    print("Event generator initializing...")
+    llm = init_model("qwenvl", 1)
+    event_tracker = EventTracker(
+        llm=llm,
+        embedding_model=embedding_model,
+        json_db_path="test.json"
+    )
+    print("Event generator initialized successfully")
     print(f"Processing video: {video_path}")
-    tracked_objects = detector.process_video_tracking_only(video_path)
+
+    cap = cv2.VideoCapture(video_path)
+        
+    if not cap.isOpened():
+        print(f"Error: Could not open video file {video_path}")
+        return []
+    
+    # Get video properties
+    original_fps = int(cap.get(cv2.CAP_PROP_FPS))
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    # Set processing fps to 10fps
+    tracking_processing_fps = 10
+    event_processing_fps = 3
+    chunk_duration = 3
+    tracking_frame_skip = max(1, original_fps // tracking_processing_fps)  # Skip frames to achieve 10fps processing
+    event_frame_skip = max(1, original_fps // event_processing_fps)  # Skip frames to achieve 3fps processing
+    
+    frame_count = 0
+    start_time = time.time()
+    # Save tracked objects to SQLite database
+    if detector.sqlite_db is not None:
+        # Add video info
+        detector.sqlite_db.add_video_info(video_path, width, height, original_fps, frame_count, tracking_processing_fps)
+    
+    print(f"Processing video (tracking only): {video_path}")
+    print(f"Resolution: {width}x{height}, Original FPS: {original_fps}")
+    print(f"Processing at ~{tracking_processing_fps} FPS (every {tracking_frame_skip} frames)")
+    print(f"Processing at ~{event_processing_fps} FPS (every {event_frame_skip} frames)")
+    
+    processed_frame_count = 0
+    frame_indices = []
+    frames = []
+    video_chunk_num_frames = int(event_processing_fps * chunk_duration)
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+    
+        # Only process every frame_skip frames for 10fps processing
+        if frame_count % tracking_frame_skip == 0:
+            # Process tracking
+            detector.process_frame(frame, frame_count)
+            processed_frame_count += 1
+                    
+        if frame_count % event_frame_skip == 0:
+            # Process event
+            frame_indices.append(frame_count)
+            frames.append(Image.fromarray(frame))
+        
+        if len(frame_indices) == video_chunk_num_frames:
+            event_tracker.process_chunk(frames, frame_indices, video_chunk_num_frames)
+            frame_indices = []
+            frames = []
+        
+        frame_count += 1
+    # Cleanup
+    cap.release()
+    
+    elapsed_time = time.time() - start_time
+    processing_avg_fps = processed_frame_count / elapsed_time
+    total_objects = len(detector.all_tracked_objects)
+    
+    print(f"Processing complete!")
+    print(f"Total input frames: {frame_count}")
+    print(f"Processed frames: {processed_frame_count}")
+    print(f"Processing speed: {processing_avg_fps:.1f} FPS")
+    print(f"Total tracked objects: {total_objects}")
     
     return embedding_model, detector
 
@@ -145,7 +228,7 @@ def main():
     # Process video with embeddings
     if args.process_only or not args.description:
         print("Processing video with embedding generation...")
-        result = process_video_with_embeddings(args.video, args.faiss_db, args.sqlite_db)
+        result = process_video(args.video, args.faiss_db, args.sqlite_db)
         if result is None:
             print("Failed to process video")
             return
