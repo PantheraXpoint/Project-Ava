@@ -17,6 +17,7 @@ from .entities import extract_entities_and_relations
 from .tree_search import TreeSearch
 from video_utils import VideoRepresentation
 from bert_score import BERTScorer
+import time
 
 
 def extract_knowledge_graph(
@@ -220,7 +221,7 @@ def tree_search(
 def generate_sa_self_consistency_result(
     tree_information: dict,
     llm: BaseLanguageModel,
-    self_consistency_num: int = 8,
+    self_consistency_num: int = 1,
 ):
     # Start timing for self-consistency generation
     self_consistency_start = time.time()
@@ -237,6 +238,10 @@ def generate_sa_self_consistency_result(
             all_input_prompts.append(
                 {
                     "text": input_prompt,
+                    # "text": input_prompt  + f"""
+                    # This is the timestamps and descriptions of the events:
+                    # {str(tree_information[0]['structed_information'][0]['event_data'])}
+                    # """,
                 }
             )
     prompt_prep_end = time.time()

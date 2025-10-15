@@ -1,11 +1,13 @@
 from dataset.lvbench import LVBench
 from dataset.videomme import VideoMME
 from dataset.ava100 import AVA100
+from dataset.single_video import SingleVideo
 
 dataset_zoo = {
     "lvbench": LVBench,
     "videomme": VideoMME,
-    "ava100": AVA100  
+    "ava100": AVA100,
+    "single_video": SingleVideo
 }
 
 video_idx_zoo = {
@@ -20,8 +22,8 @@ def get_video_idx(dataset_name):
         raise ValueError(f"Dataset {dataset_name} not found in video_idx_zoo. Supported datasets: {supported_datasets}")
     return video_idx_zoo[dataset_name]
 
-def init_dataset(dataset_name):
+def init_dataset(dataset_name, video_path=None):
     if dataset_name not in dataset_zoo:
         supported_datasets = ", ".join(dataset_zoo.keys())
         raise ValueError(f"Dataset {dataset_name} not found in dataset_zoo. Supported datasets: {supported_datasets}")
-    return dataset_zoo[dataset_name]()
+    return dataset_zoo[dataset_name](video_path=video_path)

@@ -115,7 +115,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True, help="Name of the LLM model to use")
     parser.add_argument("--dataset", required=True, help="Name of the dataset")
-    parser.add_argument("--video_id", type=int, required=True, help="ID of the video to process")
+    parser.add_argument("--video_id", type=int, default=-1, help="ID of the video to process")
+    parser.add_argument("--video_path", type=str, help="ID of the video to process")
     parser.add_argument("--question_id", type=int, help="ID of the question to process")
     parser.add_argument("--video_start", type=int, help="Start video ID for batch processing (used when video_id=-1)")
     parser.add_argument("--video_end", type=int, help="End video ID for batch processing (used when video_id=-1)")
@@ -175,6 +176,21 @@ if __name__ == "__main__":
         overall_end = log_timing(profiler_logger, "TOTAL PROCESSING TIME", overall_start)
         
         profiler_logger.info("=== SINGLE VIDEO PROCESSING COMPLETED ===")
+        print(final_sa_answer)
+    elif args.question is not None:
+        dataset = init_dataset(args.dataset, args.video_path)
+        llm = init_model(args.model, args.gpus)
+        
+        video = dataset.get_video()
+        
+        ava = AVA(
+            video=video,
+            llm_model=llm,
+        )
+        
+        ava.query_tree_search(args.question)
+        
+        final_sa_answer = ava.generate_SA_answer(args.question)
         print(final_sa_answer)
     else:
         # Validate process number

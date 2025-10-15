@@ -4,15 +4,15 @@ import asyncio
 from PIL import Image
 from openai import OpenAI
 from llms.BaseModel import BaseVideoModel, BaseLanguageModel
-
-API_KEY = "YOUR_API_KEY"
+import os
+API_KEY = os.getenv("GEMINI_API_KEY")
 
 class Gemini(BaseVideoModel, BaseLanguageModel):
-    def __init__(self, model_type="gemini-1.5-pro", tp=None):
+    def __init__(self, model_type="gemini-1.5-flash", tp=None):
         self.model_type = model_type
         self.key = API_KEY
 
-    def generate_response(self, inputs, max_tokens=500, temperature=0.5):
+    def generate_response(self, inputs, max_new_tokens=500, temperature=0.5):
         assert "text" in inputs.keys(), "Please provide a text prompt."
         
         model = OpenAI(
@@ -41,22 +41,22 @@ class Gemini(BaseVideoModel, BaseLanguageModel):
             model=self.model_type,
             messages=messages,
             temperature=temperature,
-            max_tokens=max_tokens
+            max_tokens=max_new_tokens
         )
 
         return response.choices[0].message.content
 
-    async def generate_response_async(self, inputs, max_tokens=500, temperature=0.5):
+    async def generate_response_async(self, inputs, max_new_tokens=500, temperature=0.5):
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.generate_response, inputs, max_tokens, temperature)
+        return await loop.run_in_executor(None, self.generate_response, inputs, max_new_tokens, temperature)
 
-    async def _generate_batch_response(self, batch_inputs, max_tokens=500, temperature=0.5):
-        tasks = [self.generate_response_async(inputs, max_tokens, temperature) for inputs in batch_inputs]
+    async def _generate_batch_response(self, batch_inputs, max_new_tokens=500, temperature=0.5):
+        tasks = [self.generate_response_async(inputs, max_new_tokens, temperature) for inputs in batch_inputs]
         responses = await asyncio.gather(*tasks)
         return responses
 
-    def batch_generate_response(self, batch_inputs, max_tokens=500, temperature=0.5):
-        return asyncio.run(self._generate_batch_response(batch_inputs, max_tokens, temperature))
+    def batch_generate_response(self, batch_inputs, max_new_tokens=500, max_batch_size=16, temperature=0.5):
+        return asyncio.run(self._generate_batch_response(batch_inputs, max_new_tokens, temperature))
 
 
 def encode_image(image):
