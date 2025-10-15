@@ -1,5 +1,14 @@
-# AVA Cache Directory
+# AVA Cache Directory (symbolic link)
+AVA_cache
 AVA_cache/
+
+# Dataset directories (symbolic links)
+datas/
+
+# Symbolic links (general rule)
+# Note: Git doesn't follow symbolic links by default, but this helps with clarity
+# Ignore any symbolic links that point to external datasets
+*_cache
 
 # Python
 __pycache__/
@@ -104,6 +113,9 @@ outputs/
 *.json
 !requirements.txt
 !package.json
+
+# Analysis scripts (temporary)
+latency_analysis.py
 
 # IDE
 .vscode/

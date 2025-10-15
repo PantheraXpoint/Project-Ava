@@ -19,13 +19,18 @@ def tri_view_retrieval(
     features_vdb: BaseVectorStorage,
     generation: int = 0
 ):
+    # Start timing for tri-view retrieval
+    tri_view_start = time.time()
+    from .utils import logger
+    logger.info(f"STEP - Tri-View Retrieval Start (generation {generation})")
+    
     top_k_for_events = 5
     top_k_for_entities = 5
     top_k_for_features = 32
     S = 1
     
-    start_time = time.time()
-    
+    # Prepare prompts
+    prompt_prep_start = time.time()
     keywords_prompt = PROMPTS["keyword_extraction"].format(
         input_text=query
     )
@@ -49,18 +54,29 @@ def tri_view_retrieval(
             "text": rewrite_feature_prompt
         }
     ]
+    prompt_prep_end = time.time()
+    logger.info(f"TIMING - Prepare Prompts: {prompt_prep_end - prompt_prep_start:.4f} seconds")
     
+    # Batch LLM generation
+    batch_generate_start = time.time()
     batch_outputs = llm.batch_generate_response(batch_inputs)
+    batch_generate_end = time.time()
+    logger.info(f"TIMING - Batch LLM Generation: {batch_generate_end - batch_generate_start:.4f} seconds")
     
     keywords_response = batch_outputs[0]
     rewrite_entity_response = batch_outputs[1]
     rewrite_feature_response = batch_outputs[2]
     
+    # Vector database queries
+    vector_queries_start = time.time()
     events_result = events_vdb.query(keywords_response, top_k=top_k_for_events)
     entities_result = entities_vdb.query(rewrite_entity_response, top_k=top_k_for_entities)
     features_result = features_vdb.query(rewrite_feature_response, top_k=top_k_for_features)
+    vector_queries_end = time.time()
+    logger.info(f"TIMING - Vector Database Queries: {vector_queries_end - vector_queries_start:.4f} seconds")
 
-    # event simalarity scores
+    # Event similarity scores calculation
+    similarity_calc_start = time.time()
     events_from_events = {event["id"]: event["__metrics__"] for event in events_result}
     events_from_entities = {}
     for entity in entities_result:
@@ -75,12 +91,19 @@ def tri_view_retrieval(
             events_from_features[feature["event"]] = feature["__metrics__"]
         else:
             events_from_features[feature["event"]] += feature["__metrics__"]
+    similarity_calc_end = time.time()
+    logger.info(f"TIMING - Event Similarity Calculation: {similarity_calc_end - similarity_calc_start:.4f} seconds")
     
+    # Sort events by scores
+    sorting_start = time.time()
     events_from_events = sorted(events_from_events.items(), key=lambda x: x[1], reverse=True)
     events_from_entities = sorted(events_from_entities.items(), key=lambda x: x[1], reverse=True)
     events_from_features = sorted(events_from_features.items(), key=lambda x: x[1], reverse=True)
+    sorting_end = time.time()
+    logger.info(f"TIMING - Sort Events by Scores: {sorting_end - sorting_start:.4f} seconds")
     
     # Normalized Borda Count
+    borda_count_start = time.time()
     event_scores = {}
     events_from_events_scores_sum = sum([score for _, score in events_from_events])
     events_from_entities_scores_sum = sum([score for _, score in events_from_entities])
@@ -98,7 +121,11 @@ def tri_view_retrieval(
             event_scores[event_id] = score / events_from_features_scores_sum * S
         else:
             event_scores[event_id] += score / events_from_features_scores_sum * S
+    borda_count_end = time.time()
+    logger.info(f"TIMING - Normalized Borda Count: {borda_count_end - borda_count_start:.4f} seconds")
             
+    # Prepare results
+    result_prep_start = time.time()
     results = [{"event_id": [event_id], "query": [query], "score": event_scores[event_id], "generation": generation+1} for event_id in event_scores]
     
     for result in results:
@@ -107,6 +134,8 @@ def tri_view_retrieval(
         result["event_data"] = [event_data]
 
     results = sorted(results, key=lambda x: x["event_data"][0]["duration"][0])
+    result_prep_end = time.time()
+    logger.info(f"TIMING - Prepare Results: {result_prep_end - result_prep_start:.4f} seconds")
     
     end_time = time.time()
     
@@ -247,7 +276,16 @@ class EventList:
 
 
 class Node:
+    _node_counter = 0
+    
     def __init__(self, state, query, action=None, parent=None, initial_event_list=None, events_vdb=None, entities_vdb=None, features_vdb=None, llm=None, video=None):
+        # Start timing for node initialization
+        node_init_start = time.time()
+        
+        # Assign unique node ID
+        Node._node_counter += 1
+        self.node_id = Node._node_counter
+        
         self.action_function = {
             "RQ": self._re_query,
             "F": self._forward,
@@ -279,18 +317,33 @@ class Node:
             self.path.append(action)
             
         self.inference_input = None
+        
+        # Log node initialization timing
+        node_init_end = time.time()
+        from .utils import logger
+        logger.info(f"TIMING - Node {self.node_id} ({action}) Initialization: {node_init_end - node_init_start:.4f} seconds")
 
     def apply_action(self):
         if self.action in self.action_function:
             self.action_function[self.action]()
 
     def _re_query(self):
-        print("Re-query")
+        from .utils import logger
+        logger.info(f"Node {self.node_id} - Re-query")
+        re_query_start = time.time()
+        
+        # Format information step
+        format_info_start = time.time()
         retrieved_information, _ = self.event_list.format_information()
         query_prompt = PROMPTS["re-query"].format(
             video_segments=retrieved_information,
             user_query=self.queries[0]
         )
+        format_info_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Format Information: {format_info_end - format_info_start:.4f} seconds")
+        
+        # LLM generation step
+        llm_generation_start = time.time()
         sub_query = self.queries[0]
         for i in range(self.max_retry_times):
             try:
@@ -301,16 +354,40 @@ class Node:
                 if sub_query:
                     break
             except Exception as e:
-                print(f"Retry {i+1} failed, error: {e}")
-        print(f"sub_query: {sub_query}")
+                logger.info(f"Retry {i+1} failed, error: {e}")
+        llm_generation_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} LLM Generation for Re-query: {llm_generation_end - llm_generation_start:.4f} seconds")
+        logger.info(f"Node {self.node_id} sub_query: {sub_query}")
 
+        # Tri-view retrieval step
+        tri_view_start = time.time()
         events_result = tri_view_retrieval(sub_query, self.llm, self.events_vdb, self.entities_vdb, self.features_vdb, generation=self.event_list.max_generation)
+        tri_view_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Tri-view Retrieval in Re-query: {tri_view_end - tri_view_start:.4f} seconds")
+        
+        # Event list insertion step
+        insert_start = time.time()
         self.event_list.insert(events_result)
         self.queries.append(sub_query)
+        insert_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Event List Insertion: {insert_end - insert_start:.4f} seconds")
+        
+        re_query_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Re-query Action Total: {re_query_end - re_query_start:.4f} seconds")
         
     def _forward(self):
-        print("Forward")
+        from .utils import logger
+        logger.info(f"Node {self.node_id} - Forward")
+        forward_start = time.time()
+        
+        # Drop events step
+        drop_start = time.time()
         self.event_list.drop(drop_ratio=0.2)
+        drop_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Drop Events: {drop_end - drop_start:.4f} seconds")
+        
+        # Get previous events step
+        get_previous_start = time.time()
         for event_chunk in self.event_list:
             event_id = event_chunk["event_id"][0]
             previous_event = self.events_vdb.get_previous_data(event_id)
@@ -318,12 +395,32 @@ class Node:
                 event_chunk["event_id"].insert(0, previous_event["__id__"])
                 event_chunk["event_data"].insert(0, previous_event)
                 event_chunk["query"].insert(0, event_chunk["query"][0])
+        get_previous_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Get Previous Events: {get_previous_end - get_previous_start:.4f} seconds")
+        
+        # Merge adjacent events step
+        merge_start = time.time()
         self.event_list.merge_adjacent_events()
         self.event_list.event_positions = self.event_list.get_event_positions()
+        merge_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Merge Adjacent Events: {merge_end - merge_start:.4f} seconds")
+        
+        forward_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Forward Action Total: {forward_end - forward_start:.4f} seconds")
 
     def _backward(self):
-        print("Backward")
+        from .utils import logger
+        logger.info(f"Node {self.node_id} - Backward")
+        backward_start = time.time()
+        
+        # Drop events step
+        drop_start = time.time()
         self.event_list.drop(drop_ratio=0.2)
+        drop_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Drop Events: {drop_end - drop_start:.4f} seconds")
+        
+        # Get next events step
+        get_next_start = time.time()
         for event_chunk in self.event_list:
             event_id = event_chunk["event_id"][-1]
             next_event = self.events_vdb.get_next_data(event_id)
@@ -331,23 +428,50 @@ class Node:
                 event_chunk["event_id"].append(next_event["__id__"])
                 event_chunk["event_data"].append(next_event)
                 event_chunk["query"].append(event_chunk["query"][-1])
+        get_next_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Get Next Events: {get_next_end - get_next_start:.4f} seconds")
+        
+        # Merge adjacent events step
+        merge_start = time.time()
         self.event_list.merge_adjacent_events()
         self.event_list.event_positions = self.event_list.get_event_positions()
+        merge_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Merge Adjacent Events: {merge_end - merge_start:.4f} seconds")
+        
+        backward_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Backward Action Total: {backward_end - backward_start:.4f} seconds")
 
     def _prepare_summary_and_answer_input(self):
-        print("Prepare summary and answer input")
-        retrieved_information, retrieved_durations = self.event_list.format_information(limited_ratio=0.75)
+        from .utils import logger
+        logger.info(f"Node {self.node_id} - Prepare summary and answer input")
+        prepare_start = time.time()
         
+        # Format information step
+        format_info_start = time.time()
+        retrieved_information, retrieved_durations = self.event_list.format_information(limited_ratio=0.75)
+        format_info_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Format Information for Summary: {format_info_end - format_info_start:.4f} seconds")
+        
+        # Create prompt step
+        prompt_creation_start = time.time()
         summary_prompt = PROMPTS["summary_and_answer_COT"].format(
             video_segments=retrieved_information,
             user_query=self.queries[0]
         )
+        prompt_creation_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Create Summary Prompt: {prompt_creation_end - prompt_creation_start:.4f} seconds")
         
+        # Set node properties step
+        set_properties_start = time.time()
         self.input_prompt = summary_prompt
-
         inference_input = {"text": summary_prompt}
         self.inference_input = inference_input
         self.retrieved_durations = retrieved_durations
+        set_properties_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Set Node Properties: {set_properties_end - set_properties_start:.4f} seconds")
+        
+        prepare_end = time.time()
+        logger.info(f"TIMING - Node {self.node_id} Prepare Summary and Answer Input Total: {prepare_end - prepare_start:.4f} seconds")
         return inference_input
 
 class TreeSearch:
@@ -374,8 +498,13 @@ class TreeSearch:
         self.actions = self.ACTIONS
 
     def init_event_list(self, query, llm, events_vdb, entities_vdb, features_vdb):
+        init_start = time.time()
         events_result = tri_view_retrieval(query, llm, events_vdb, entities_vdb, features_vdb)
         event_list = EventList(events_result)
+        init_end = time.time()
+        from .utils import logger
+        logger.info(f"TIMING - Initialize Event List: {init_end - init_start:.4f} seconds")
+        
         return event_list
 
     def merge_event_lists(self, event_lists, select_ratio=None):
@@ -398,7 +527,11 @@ class TreeSearch:
         return EventList(event_results, Limited_length=1000)
                     
     def search(self):
+        search_start = time.time()
         self._search(self.root, 0)
+        search_end = time.time()
+        from .utils import logger
+        logger.info(f"TIMING - Tree Search Algorithm: {search_end - search_start:.4f} seconds")
         # self._delay_inference()
 
     def _search(self, node, current_depth):
@@ -406,19 +539,30 @@ class TreeSearch:
             return
         
         if current_depth == self.max_depth - 1:
+            from .utils import logger
+            logger.info(f"STEP - Creating SA Node at depth {current_depth}")
+            sa_node_start = time.time()
             child_node = Node(state="node", query=node.queries[0], action="SA", parent=node, initial_event_list=node.event_list, events_vdb=self.events_vdb, entities_vdb=self.entities_vdb, features_vdb=self.features_vdb, llm=self.llm, video=self.video)
             child_node.apply_action()
             node.children.append(child_node)
+            sa_node_end = time.time()
+            logger.info(f"TIMING - SA Node {child_node.node_id} Creation and Action: {sa_node_end - sa_node_start:.4f} seconds")
             return
 
         for action in self.actions:
+            from .utils import logger
+            logger.info(f"STEP - Creating {action} Node at depth {current_depth}")
+            node_creation_start = time.time()
             child_node = Node(state="node", query=node.queries[0], action=action, parent=node, initial_event_list=node.event_list, events_vdb=self.events_vdb, entities_vdb=self.entities_vdb, features_vdb=self.features_vdb, llm=self.llm, video=self.video)
             child_node.apply_action()
             node.children.append(child_node)
+            node_creation_end = time.time()
+            logger.info(f"TIMING - {action} Node {child_node.node_id} Creation and Action: {node_creation_end - node_creation_start:.4f} seconds")
             self._search(child_node, current_depth + 1)
             
     
     def collect_tree_information(self):
+        collect_start = time.time()
         tree_information = []
 
         def collect_answers(node, depth, path):
@@ -435,6 +579,9 @@ class TreeSearch:
                 collect_answers(child, depth + 1, path + [child.action])
 
         collect_answers(self.root, 0, [self.root.action])
+        collect_end = time.time()
+        from .utils import logger
+        logger.info(f"TIMING - Collect Tree Information: {collect_end - collect_start:.4f} seconds")
 
         return tree_information
         
