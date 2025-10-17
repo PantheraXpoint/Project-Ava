@@ -88,8 +88,6 @@ def batch_generate_descriptions(
                         track_data.append(detection)
             prompt_template = PROMPTS["generate_person_activity_description"]
             prompt_template = prompt_template.format(inputs=str(track_data))
-            print(prompt_template)
-            print("-"*50)
             inputs = {
                 "text": prompt_template,
                 "video": frames,
@@ -124,6 +122,7 @@ def batch_generate_descriptions_external(
     video_chunk_num_frames: int,
     frame_indices: list = None,
     frames: list = None,
+    frame_skip: int = 1,
 ):
     """
     batch generate dense descriptions for each chunk
@@ -135,10 +134,7 @@ def batch_generate_descriptions_external(
     num_frames = video_chunk_num_frames
     for batch_idx in range(num_frames//batch_size):
         frames_batch = frames[batch_idx * batch_size:(batch_idx + 1) * batch_size]
-        frame_indices_batch = frame_indices[batch_idx * batch_size:(batch_idx + 1) * batch_size]
         prompt_template = PROMPTS["generate_description"]
-        print(prompt_template)
-        print("-"*50)
         inputs = {
             "text": prompt_template,
             "video": frames_batch,
@@ -152,7 +148,7 @@ def batch_generate_descriptions_external(
     descriptions = []
     for i in range(len(batch_descriptions)):
         descriptions.append({
-            "duration": [frame_indices[i], frame_indices[i + batch_size - 1]],
+            "duration": [frame_indices[i], frame_indices[i + batch_size - 1] + frame_skip - 1],
             "description": batch_descriptions[i],
         })
     return descriptions

@@ -406,7 +406,7 @@ class ObjectDetectorTracker:
                 frame_numbers=obj_data["frame_numbers"]
             )
     
-    def _generate_embedding(self, frame: np.ndarray, bbox: List[int], track_id: int, frame_count: int, confidence: float, tracked_object: Dict):
+    def _generate_embedding(self, frame: np.ndarray, bbox: List[int], id: str, frame_count: int, confidence: float, tracked_object: Dict):
         """
         Generate embedding for a bounding box in the frame
         """
@@ -433,17 +433,18 @@ class ObjectDetectorTracker:
 
                     # Store in FAISS database
                     metadata = {
+                        'track_id': tracked_object["track_id"],
                         'frame_number': frame_count,
                         'bbox': bbox,
                         'confidence': confidence,
                         'class_id': tracked_object["class_id"],
                         'class_name': tracked_object["class_name"]
                     }
-                    faiss_id = self.faiss_db.add_embedding(embedding, track_id, metadata)
-                    print(f"Generated embedding for new track {track_id} (FAISS ID: {faiss_id})")
+                    faiss_id = self.faiss_db.add_embedding(embedding, id, metadata)
+                    print(f"Generated embedding for new track {id} (FAISS ID: {faiss_id})")
                     
             except Exception as e:
-                print(f"Error generating embedding for track {track_id}: {e}")
+                print(f"Error generating embedding for track {id}: {e}")
 
 def main():
     """Main function for testing the ObjectDetectorTracker"""

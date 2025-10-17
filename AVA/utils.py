@@ -11,8 +11,11 @@ import coloredlogs
 from dataclasses import dataclass
 from functools import wraps
 from hashlib import md5
-from typing import Any, Union, List
+from typing import Any, Union, List, Dict
 import xml.etree.ElementTree as ET
+from .prompt import PROMPTS
+from llms.BaseModel import BaseLanguageModel
+from embeddings.object_search import SearchSystem
 
 import numpy as np
 import tiktoken
@@ -141,3 +144,138 @@ def xml_to_json(xml_file):
     except Exception as e:
         print(f"An error occurred: {e}")
         return None
+
+
+def tri_view_retrieval(
+    query: str,
+    event_search_system: SearchSystem,
+    object_search_system: SearchSystem,
+    llm: BaseLanguageModel,
+    retrieval_mode: str = "both"  # "events_only", "entities_only", or "both"
+):
+    # Validate retrieval_mode parameter
+    valid_modes = ["events_only", "entities_only", "both"]
+    if retrieval_mode not in valid_modes:
+        raise ValueError(f"retrieval_mode must be one of {valid_modes}, got: {retrieval_mode}")
+    
+    top_k_for_events = 5
+    top_k_for_entities = 5
+    S = 1/2
+    
+    # Initialize results
+    events_result = []
+    entities_result = []
+    batch_inputs = []
+    
+    # Prepare prompts based on retrieval mode
+    if retrieval_mode in ["events_only", "both"]:
+        keywords_prompt = PROMPTS["keyword_extraction"].format(input_text=query)
+        batch_inputs.append({"text": keywords_prompt})
+    
+    if retrieval_mode in ["entities_only", "both"]:
+        rewrite_entity_prompt = PROMPTS["query_rewrite_for_entity_retrieval"].format(input_text=query)
+        batch_inputs.append({"text": rewrite_entity_prompt})
+    
+    # Generate responses
+    batch_outputs = llm.batch_generate_response(batch_inputs)
+    
+    # Process results based on mode
+    output_idx = 0
+    if retrieval_mode in ["events_only", "both"]:
+        keywords_response = batch_outputs[output_idx]
+        print("Rewrite event response: ", keywords_response)
+        events_result = event_search_system.search_by_description(keywords_response, top_k_for_events)
+        output_idx += 1
+    
+    if retrieval_mode in ["entities_only", "both"]:
+        rewrite_entity_response = batch_outputs[output_idx]
+        print("Rewrite entity response: ", rewrite_entity_response)
+        entities_result = object_search_system.search_by_description(rewrite_entity_response, top_k_for_entities)
+    
+    # Initialize scoring dictionaries
+    events_from_events = {}
+    events_from_entities = {}
+    
+    # Process events if needed
+    if retrieval_mode in ["events_only", "both"] and events_result:
+        events_from_events = {event["id"]: event["similarity_score"] for event in events_result}
+    
+    # Process entities and their relationship to events
+    if retrieval_mode in ["entities_only", "both"] and entities_result:
+        # Initialize events list for each entity
+        
+        # If we have both events and entities, find overlaps
+        if retrieval_mode == "both" and events_result:
+            for entity in entities_result:
+                entity.setdefault('events', [])
+            for event in events_result:
+                start, end = event['faiss_metadata']['duration']
+                for entity in entities_result:
+                    first, last = entity['first_frame'], entity['last_frame']
+                    # Check if entity overlaps with event duration
+                    if (start <= first <= end) or (start <= last <= end):
+                        entity['events'].append(event['id'])
+        
+        # Calculate entity-based event scores
+        for entity in entities_result:
+            for event_id in entity.get("events", [entity["id"]]):
+                if event_id not in events_from_entities:
+                    events_from_entities[event_id] = entity["similarity_score"]
+                else:
+                    events_from_entities[event_id] += entity["similarity_score"]
+    
+    # Sort results
+    events_from_events = sorted(events_from_events.items(), key=lambda x: x[1], reverse=True)
+    events_from_entities = sorted(events_from_entities.items(), key=lambda x: x[1], reverse=True)
+    
+    # Calculate event scores using normalized Borda Count
+    event_scores = {}
+    
+    # Add event-based scores
+    if events_from_events:
+        events_from_events_scores_sum = sum([score for _, score in events_from_events])
+        for event_id, score in events_from_events:
+            event_scores[event_id] = score / events_from_events_scores_sum * S
+    
+    # Add entity-based scores
+    if events_from_entities:
+        events_from_entities_scores_sum = sum([score for _, score in events_from_entities])
+        for event_id, score in events_from_entities:
+            if event_id not in event_scores:
+                event_scores[event_id] = score / events_from_entities_scores_sum * S
+            else:
+                event_scores[event_id] += score / events_from_entities_scores_sum * S
+    
+    # Handle case where no events are found
+    if not event_scores:
+        return []
+    
+    # sort event_scores by score
+    event_scores = sorted(event_scores.items(), key=lambda x: x[1], reverse=True)
+    # Build final results
+    final_results = []
+    for event_id, score in event_scores:
+        # Find event description
+        event_description = ""
+        if events_result:
+            matching_events = [event for event in events_result if event["id"] == event_id]
+            if matching_events:
+                event_description = matching_events[0]['faiss_metadata']['description']
+        
+        # Find related entities
+        entity_ids = []
+        related_entities = []
+        if entities_result:
+            entity_ids = [entity["id"] for entity in entities_result if event_id in entity.get("events", [entity["id"]])]
+            related_entities = [entity for entity in entities_result if entity["id"] in entity_ids]
+        
+        final_results.append({
+            "event_id": [event_id],
+            "event_description": event_description,
+            "query": [query],
+            "score": score,
+            "entity_ids": entity_ids,
+            "entities": related_entities
+        })
+    
+    return final_results

@@ -23,9 +23,7 @@ def tri_view_retrieval(
     top_k_for_entities = 5
     top_k_for_features = 32
     S = 1
-    
-    start_time = time.time()
-    
+        
     keywords_prompt = PROMPTS["keyword_extraction"].format(
         input_text=query
     )

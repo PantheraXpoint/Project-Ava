@@ -59,7 +59,7 @@ class FAISSDB:
                 'next_id': self.next_id
             }, f)
     
-    def add_embedding(self, embedding: np.ndarray, track_id: int, metadata: dict) -> int:
+    def add_embedding(self, embedding: np.ndarray, id: str, metadata: dict) -> int:
         """
         Add embedding to the database
         
@@ -81,11 +81,11 @@ class FAISSDB:
         
         # Store metadata
         self.id_to_metadata[faiss_id] = {
-            'track_id': track_id,
+            'id': id,
             'embedding': embedding.flatten(),
             **metadata
         }
-        self.metadata_to_id[track_id] = faiss_id
+        self.metadata_to_id[id] = faiss_id
         
         self.next_id += 1
         
@@ -119,23 +119,23 @@ class FAISSDB:
         
         return results
     
-    def get_by_track_id(self, track_id: int) -> Optional[dict]:
-        """Get metadata by track_id"""
-        if track_id in self.metadata_to_id:
-            faiss_id = self.metadata_to_id[track_id]
+    def get_by_id(self, id: int) -> Optional[dict]:
+        """Get metadata by id"""
+        if id in self.metadata_to_id:
+            faiss_id = self.metadata_to_id[id]
             return self.id_to_metadata[faiss_id]
         return None
     
-    def get_all_track_ids(self) -> List[int]:
-        """Get all track IDs in the database"""
+    def get_all_ids(self) -> List[int]:
+        """Get all ids in the database"""
         return list(self.metadata_to_id.keys())
     
-    def remove_by_track_id(self, track_id: int) -> bool:
-        """Remove embedding by track_id"""
-        if track_id in self.metadata_to_id:
-            faiss_id = self.metadata_to_id[track_id]
+    def remove_by_id(self, id: int) -> bool:
+        """Remove embedding by id"""
+        if id in self.metadata_to_id:
+            faiss_id = self.metadata_to_id[id]
             del self.id_to_metadata[faiss_id]
-            del self.metadata_to_id[track_id]
+            del self.metadata_to_id[id]
             self._save_database()
             return True
         return False

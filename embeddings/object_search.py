@@ -6,12 +6,12 @@ from FAISSDB import FAISSDB
 from SQLiteDB import SQLiteDB
 from JinaCLIP import JinaCLIP
 
-class ObjectSearch:
+class SearchSystem:
     """
     Object search functionality using embeddings and databases
     """
     
-    def __init__(self, faiss_db_path: str, sqlite_db_path: str, embedding_model: JinaCLIP):
+    def __init__(self, faiss_db_path: str, sqlite_db_path: Optional[str], embedding_model: JinaCLIP):
         """
         Initialize object search system
         
@@ -21,7 +21,10 @@ class ObjectSearch:
             embedding_model: JinaCLIP embedding model
         """
         self.faiss_db = FAISSDB(faiss_db_path, embedding_model.embedding_dim)
-        self.sqlite_db = SQLiteDB(sqlite_db_path)
+        if sqlite_db_path is not None:
+            self.sqlite_db = SQLiteDB(sqlite_db_path)
+        else:
+            self.sqlite_db = None
         self.embedding_model = embedding_model
     
     def search_by_description(self, description: str, k: int = 5) -> List[Dict]:
@@ -44,12 +47,14 @@ class ObjectSearch:
         # Get additional information from SQLite database
         results = []
         for faiss_id, similarity_score, metadata in faiss_results:
-            track_id = metadata['track_id']
-            sqlite_info = self.sqlite_db.get_tracked_object(track_id)
+            id = metadata['id']
+            sqlite_info = None
+            if self.sqlite_db is not None:
+                sqlite_info = self.sqlite_db.get_tracked_object(id)
             
             if sqlite_info:
                 result = {
-                    'track_id': track_id,
+                    'id': id,
                     'similarity_score': similarity_score,
                     'class_name': sqlite_info['class_name'],
                     'class_id': sqlite_info['class_id'],
@@ -62,9 +67,14 @@ class ObjectSearch:
                     'faiss_metadata': metadata
                 }
                 results.append(result)
-        
+            else:
+                result = {
+                    'id': id,
+                    'similarity_score': similarity_score,
+                    'faiss_metadata': metadata
+                }
+                results.append(result)
         return results
-    
     
     def search_and_extract(self, description: str, video_path: str, output_dir: str, 
                           k: int = 5, max_images: int = 10) -> Tuple[List[Dict], List[str]]:
@@ -157,7 +167,8 @@ def extract_bounding_box_images(video_path: str, search_results: List[Dict],
         return saved_images
     
     for result in search_results:
-        track_id = result['track_id']
+        print("Entity confidence score: ", result['similarity_score'])
+        id = result['id']
         bbox_history = result.get('bbox_history', result.get('filtered_bboxes', []))
         frame_numbers = result.get('frame_numbers', result.get('filtered_frames', []))
         class_name = result['class_name']
@@ -193,10 +204,10 @@ def extract_bounding_box_images(video_path: str, search_results: List[Dict],
             if roi.size > 0:
                 frame_with_bbox = frame.copy()
                 cv2.rectangle(frame_with_bbox, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(frame_with_bbox, f"ID:{track_id} {class_name}", 
+                cv2.putText(frame_with_bbox, f"ID:{id} {class_name}", 
                             (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                 
-                bbox_filename = f"track_{track_id}_frame_{frame_num}_{class_name}_bbox.jpg"
+                bbox_filename = f"track_{id}_frame_{frame_num}_{class_name}_bbox.jpg"
                 bbox_filepath = os.path.join(output_dir, bbox_filename)
                 cv2.imwrite(bbox_filepath, frame_with_bbox)
                 print(f"Saved image to {bbox_filepath}")

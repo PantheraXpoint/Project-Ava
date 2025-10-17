@@ -24,7 +24,7 @@ class EventTracker:
     Event tracking
     """
     
-    def __init__(self, llm: BaseVideoModel, embedding_model: Optional[JinaCLIP] = None, json_db_path: str = "event_embeddings.json"):
+    def __init__(self, llm: BaseVideoModel, embedding_model: Optional[JinaCLIP] = None, faiss_db_path: str = "event_embeddings.faiss"):
         """
         Initialize the event tracker
         
@@ -36,16 +36,21 @@ class EventTracker:
         # Initialize embedding system if model is provided
         self.embedding_model = embedding_model
         self.llm = llm
-        self.event_db_path = json_db_path
+        self.faiss_db = None
+        if self.embedding_model is not None:
+            self.faiss_db = FAISSDB(faiss_db_path, self.embedding_model.embedding_dim)
 
-    def process_chunk(self, frames: list, frame_indices: list, video_chunk_num_frames: int):
+    def process_chunk(self, frames: list, frame_indices: list, video_chunk_num_frames: int, frame_skip: int):
         """
         Process a chunk of frames
         """
         descriptions = batch_generate_descriptions_external(self.llm, batch_size=video_chunk_num_frames,
                                                 video_chunk_num_frames=video_chunk_num_frames,
                                                 frames=frames,
-                                                frame_indices=frame_indices)
+                                                frame_indices=frame_indices,
+                                                frame_skip=frame_skip)
+        # TODO: add semantic chunking
+        
         self._add_descriptions(descriptions)
 
     def process_video(self, video_path: str):
@@ -85,8 +90,6 @@ class EventTracker:
             if not ret:
                 break
             
-            frame_count += 1
-            
             # Only process every frame_skip frames for 10fps processing
             if frame_count % frame_skip == 0:
                 
@@ -94,11 +97,13 @@ class EventTracker:
                 frames.append(Image.fromarray(frame))
                 
                 if len(frame_indices) == video_chunk_num_frames:
-                    self.process_chunk(frames, frame_indices, video_chunk_num_frames)
+                    self.process_chunk(frames, frame_indices, video_chunk_num_frames, frame_skip)
                     frame_indices = []
                     frames = []
                 
                 processed_frame_count += 1
+            
+            frame_count += 1
         
         # Cleanup
         cap.release()
@@ -117,19 +122,22 @@ class EventTracker:
         """
         Add descriptions to the event database
         """
-        for description in descriptions:
-            metadata = {
-                'duration': description["duration"],
-                'description': description["description"]
-            }
-            with open(self.event_db_path, "a") as f:
-                json.dump(metadata, f)
-                f.write("\n")
+        if self.faiss_db is not None:
+            try:
+                for description in descriptions:
+                    embedding = self.embedding_model.get_text_features([description["description"]])[0]
+                    faiss_id = self.faiss_db.add_embedding(embedding, description["duration"][0], {
+                        'duration': description["duration"],
+                        'description': description["description"]
+                    })
+                    print(f"Added description {description['description']} to FAISS database with ID {faiss_id}")
+            except Exception as e:
+                print(f"Error adding descriptions to FAISS database: {e}")
 
 def main():
     """Main function for testing the ObjectDetectorTracker"""
     parser = argparse.ArgumentParser(description='Object Detection and Tracking with YOLOv11')
-    parser.add_argument('--json-db-path', type=str, default='database/event_embeddings.json',
+    parser.add_argument('--faiss-db-path', type=str, default='database/event_embeddings.faiss',
                        help='Path to FAISS database file')
     parser.add_argument('--video', type=str, 
                        help='Path to input video file')
@@ -157,7 +165,7 @@ def main():
     event_tracker = EventTracker(
         llm=llm,
         embedding_model=embedding_model,
-        json_db_path=args.json_db_path
+        faiss_db_path=args.faiss_db_path
     )
     
     if args.video:

@@ -9,29 +9,32 @@ import argparse
 from typing import List, Dict
 import cv2
 import time
-from dataset.init_dataset import init_dataset
 from llms.init_model import init_model
-from AVA.ava import AVA
-from AVA.events import batch_generate_descriptions_external
+from llms.BaseModel import BaseLanguageModel
 from PIL import Image
+import ulid
+from embeddings.object_search import extract_bounding_box_images
 
 # Add embeddings directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'embeddings'))
 
 from JinaCLIP import JinaCLIP
-from embeddings.object_search import ObjectSearch
+from embeddings.object_search import SearchSystem
 from AVA.object_detect import ObjectDetectorTracker
 from AVA.event_tracker import EventTracker
+from AVA.utils import tri_view_retrieval
 
-def process_video(video_path: str, faiss_db_path: str = "embeddings.faiss", 
-                                 sqlite_db_path: str = "tracked_objects.db"):
+def process_video(video_path: str, object_faiss_db_path: str = "object_embeddings.faiss", 
+                                 event_faiss_db_path: str = "event_embeddings.faiss", 
+                                 object_sqlite_db_path: str = "tracked_objects.db"):
     """
     Process video with embedding generation for new track IDs
     
     Args:
         video_path: Path to input video
-        faiss_db_path: Path to FAISS database
-        sqlite_db_path: Path to SQLite database
+        object_faiss_db_path: Path to FAISS database
+        event_faiss_db_path: Path to FAISS database
+        object_sqlite_db_path: Path to SQLite database
     """
     print("Initializing JinaCLIP embedding model...")
     try:
@@ -43,20 +46,20 @@ def process_video(video_path: str, faiss_db_path: str = "embeddings.faiss",
     
     print("Initializing object detector with embedding support...")
     detector = ObjectDetectorTracker(
-        model_path="yolo11n.pt",
+        model_path="checkpoints/yolo11n.pt",
         conf_threshold=0.5,
         iou_threshold=0.5,
         tracker_config="config/tracker.yaml",
         embedding_model=embedding_model,
-        faiss_db_path=faiss_db_path,
-        sqlite_db_path=sqlite_db_path
+        faiss_db_path=object_faiss_db_path,
+        sqlite_db_path=object_sqlite_db_path
     )
     print("Event generator initializing...")
     llm = init_model("qwenvl", 1)
     event_tracker = EventTracker(
         llm=llm,
         embedding_model=embedding_model,
-        json_db_path="test.json"
+        faiss_db_path=event_faiss_db_path
     )
     print("Event generator initialized successfully")
     print(f"Processing video: {video_path}")
@@ -112,7 +115,7 @@ def process_video(video_path: str, faiss_db_path: str = "embeddings.faiss",
             frames.append(Image.fromarray(frame))
         
         if len(frame_indices) == video_chunk_num_frames:
-            event_tracker.process_chunk(frames, frame_indices, video_chunk_num_frames)
+            event_tracker.process_chunk(frames, frame_indices, video_chunk_num_frames, event_frame_skip)
             frame_indices = []
             frames = []
         
@@ -132,21 +135,23 @@ def process_video(video_path: str, faiss_db_path: str = "embeddings.faiss",
     
     return embedding_model, detector
 
-def search_and_extract_objects(description: str, video_path: str, output_dir: str,
-                              faiss_db_path: str = "embeddings.faiss",
-                              sqlite_db_path: str = "tracked_objects.db",
-                              k: int = 5, max_images: int = 10):
+def search_video(query: str, video_path: str, output_dir: str,
+                              object_faiss_db_path: str = "database/object_embeddings.faiss",
+                              event_faiss_db_path: str = "database/event_embeddings.faiss",
+                              object_sqlite_db_path: str = "database/tracked_objects.db",
+                              k: int = 5, max_images: int = 10, llm: BaseLanguageModel = None):
     """
     Search for objects by description and extract bounding box images
     
     Args:
-        description: Text description to search for
+        query: Text description to search for
         video_path: Path to original video
         output_dir: Directory to save extracted images
         faiss_db_path: Path to FAISS database
         sqlite_db_path: Path to SQLite database
         k: Number of search results to return
         max_images: Maximum images to extract per track
+        llm: LLM model for generating descriptions
     """
     print("Initializing JinaCLIP embedding model...")
     try:
@@ -157,13 +162,18 @@ def search_and_extract_objects(description: str, video_path: str, output_dir: st
         return [], []
     
     print("Initializing object search system...")
-    search_system = ObjectSearch(faiss_db_path, sqlite_db_path, embedding_model)
-    
-    print(f"Searching for objects matching: '{description}'")
-    search_results, saved_images = search_system.search_and_extract(
-        description, video_path, output_dir, k, max_images
-    )
-    
+    object_search_system = SearchSystem(object_faiss_db_path, object_sqlite_db_path, embedding_model)
+    event_search_system = SearchSystem(event_faiss_db_path, None, embedding_model)
+    search_results = tri_view_retrieval(query, event_search_system, object_search_system, llm, "both")
+    saved_images = []
+    for result in search_results:
+        if result["event_description"] != "":
+            print("In event ", result["event_id"] ,": ", result["event_description"], "There are ", len(result["entities"]), " entities")
+            print("The confidence score is: ", result["score"])
+        else:
+            print("There are ", len(result["entities"]), " entities.")
+        entities_result = result["entities"]
+        saved_images = extract_bounding_box_images(video_path, entities_result, output_dir, max_images)
     return search_results, saved_images
 
 def get_database_statistics(faiss_db_path: str = "embeddings.faiss",
@@ -206,9 +216,11 @@ def main():
                        help='Text description to search for')
     parser.add_argument('--output-dir', type=str, default='extracted_objects',
                        help='Directory to save extracted images')
-    parser.add_argument('--faiss-db', type=str, default='database/embeddings.faiss',
+    parser.add_argument('--object-faiss-db', type=str, default='database/object_embeddings.faiss',
                        help='Path to FAISS database file')
-    parser.add_argument('--sqlite-db', type=str, default='database/tracked_objects.db',
+    parser.add_argument('--event-faiss-db', type=str, default='database/event_embeddings.faiss',
+                       help='Path to FAISS database file')
+    parser.add_argument('--object-sqlite-db', type=str, default='database/tracked_objects.db',
                        help='Path to SQLite database file')
     parser.add_argument('--k', type=int, default=5,
                        help='Number of search results to return')
@@ -226,9 +238,9 @@ def main():
         return
     
     # Process video with embeddings
-    if args.process_only or not args.description:
+    if args.process_only and not args.description:
         print("Processing video with embedding generation...")
-        result = process_video(args.video, args.faiss_db, args.sqlite_db)
+        result = process_video(args.video, args.object_faiss_db, args.event_faiss_db, args.object_sqlite_db)
         if result is None:
             print("Failed to process video")
             return
@@ -237,28 +249,17 @@ def main():
     
     # Show statistics
     if args.stats:
-        get_database_statistics(args.faiss_db, args.sqlite_db)
+        get_database_statistics(args.object_faiss_db, args.object_sqlite_db)
     
     # Search and extract objects
     if args.description:
         print(f"\nSearching for objects matching: '{args.description}'")
-        search_results, saved_images = search_and_extract_objects(
+        llm = init_model("qwenvl", 1)
+        search_results, saved_images = search_video(
             args.description, args.video, args.output_dir,
-            args.faiss_db, args.sqlite_db, args.k, args.max_images
+            args.object_faiss_db, args.event_faiss_db, args.object_sqlite_db,
+            args.k, args.max_images, llm
         )
-        
-        if search_results:
-            print(f"\nFound {len(search_results)} matching objects:")
-            for i, result in enumerate(search_results):
-                print(f"  {i+1}. Track ID: {result['track_id']}, "
-                      f"Class: {result['class_name']}, "
-                      f"Similarity: {result['similarity_score']:.3f}")
-            
-            print(f"\nExtracted {len(saved_images)} images to {args.output_dir}")
-            for image_path in saved_images:
-                print(f"  - {image_path}")
-        else:
-            print("No objects found matching the description")
 
 if __name__ == "__main__":
     main()
