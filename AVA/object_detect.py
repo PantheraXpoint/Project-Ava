@@ -11,7 +11,7 @@ from PIL import Image
 # Add embeddings directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'embeddings'))
 
-from embeddings.FAISSDB import FAISSDB
+# from embeddings.FAISSDB import FAISSDB
 from embeddings.SQLiteDB import SQLiteDB
 from JinaCLIP import JinaCLIP
 from AVA.tracker import CustomTracker

@@ -20,7 +20,7 @@ def test_complex_query_parsing():
     
     try:
         from embeddings.JinaCLIP import JinaCLIP
-        from embeddings.FAISSDB import FAISSDB
+        # from embeddings.FAISSDB import FAISSDB
         from embeddings.SQLiteDB import SQLiteDB
     except ImportError as e:
         print(f"Import error: {e}")
