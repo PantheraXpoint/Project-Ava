@@ -43,7 +43,7 @@ def batch_generate_descriptions(
     batch_size: int,
     global_config: dict,
     max_retries: int = 5,
-    sound_detections: list = None,
+    sound_detections: list[dict] = None,
 ):
     """
     batch generate dense descriptions for each chunk
@@ -116,6 +116,20 @@ def batch_generate_descriptions(
 
     return descriptions
 
+def list_2_dict(detected_objects: list):
+    if detected_objects is None:
+        return None
+    detected_objects_dict = []
+    for object in detected_objects:
+        for track_id, obj in object.items():
+            detected_objects_dict.append({
+                "track_id": track_id,
+                "class_name": obj["class_name"],
+                "bbox_history": obj["bbox_history"],
+                "frame_numbers": obj["frame_numbers"]
+            })
+    return detected_objects_dict
+
 def batch_generate_descriptions_external(
     llm: BaseVideoModel,
     batch_size: int,
@@ -123,6 +137,7 @@ def batch_generate_descriptions_external(
     frame_indices: list = None,
     frames: list = None,
     frame_skip: int = 1,
+    detected_objects: list = None,
 ):
     """
     batch generate dense descriptions for each chunk
@@ -147,9 +162,11 @@ def batch_generate_descriptions_external(
         print(f"Error generating descriptions: {e}")
     descriptions = []
     for i in range(len(batch_descriptions)):
+        detected_objects_dict = list_2_dict(detected_objects)
         descriptions.append({
             "duration": [frame_indices[i], frame_indices[i + batch_size - 1] + frame_skip - 1],
             "description": batch_descriptions[i],
+            "objects": detected_objects_dict,
         })
     return descriptions
 

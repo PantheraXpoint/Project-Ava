@@ -27,7 +27,7 @@ class SearchSystem:
             self.sqlite_db = None
         self.embedding_model = embedding_model
     
-    def search_by_description(self, description: str, k: int = 5) -> List[Dict]:
+    def search_by_description(self, description: str, k: Optional[int] = None) -> List[Dict]:
         """
         Search for objects by text description
         
@@ -42,6 +42,8 @@ class SearchSystem:
         description_embedding = self.embedding_model.get_text_features([description])[0]
         
         # Search in FAISS database
+        if k is None:
+            k = len(self.faiss_db.get_all_ids())
         faiss_results = self.faiss_db.search(description_embedding, k)
         
         # Get additional information from SQLite database
@@ -101,7 +103,7 @@ class SearchSystem:
         print(f"Found {len(search_results)} objects matching description: {description}")
         
         # Extract images
-        saved_images = extract_bounding_box_images(
+        saved_images = filter_and_extract_bounding_box(
             video_path, search_results, output_dir, max_images
         )
         
@@ -141,8 +143,7 @@ class SearchSystem:
             'average_track_length': total_frames / len(all_objects) if all_objects else 0
         }
 
-
-def extract_bounding_box_images(video_path: str, search_results: List[Dict], 
+def filter_and_extract_bounding_box(video_path: str, search_results: List[Dict], 
                                   output_dir: str, max_images: int = 10) -> List[str]:
     """
     Extract and save bounding box images from video based on search results
@@ -167,7 +168,7 @@ def extract_bounding_box_images(video_path: str, search_results: List[Dict],
         return saved_images
     
     for result in search_results:
-        print("Entity confidence score: ", result['similarity_score'])
+        # print("Entity confidence score: ", result['similarity_score'])
         id = result['id']
         bbox_history = result.get('bbox_history', result.get('filtered_bboxes', []))
         frame_numbers = result.get('frame_numbers', result.get('filtered_frames', []))

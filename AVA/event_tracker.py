@@ -17,6 +17,7 @@ from embeddings.FAISSDB import FAISSDB
 from JinaCLIP import JinaCLIP
 from llms.BaseModel import BaseVideoModel
 import json
+from AVA.utils import chunk_text
 
 
 class EventTracker:
@@ -40,7 +41,7 @@ class EventTracker:
         if self.embedding_model is not None:
             self.faiss_db = FAISSDB(faiss_db_path, self.embedding_model.embedding_dim)
 
-    def process_chunk(self, frames: list, frame_indices: list, video_chunk_num_frames: int, frame_skip: int):
+    def process_chunk(self, frames: list, frame_indices: list, detected_objects: list, video_chunk_num_frames: int, frame_skip: int):
         """
         Process a chunk of frames
         """
@@ -48,7 +49,8 @@ class EventTracker:
                                                 video_chunk_num_frames=video_chunk_num_frames,
                                                 frames=frames,
                                                 frame_indices=frame_indices,
-                                                frame_skip=frame_skip)
+                                                frame_skip=frame_skip,
+                                                detected_objects=detected_objects)
         # TODO: add semantic chunking
         
         self._add_descriptions(descriptions)
@@ -125,12 +127,15 @@ class EventTracker:
         if self.faiss_db is not None:
             try:
                 for description in descriptions:
-                    embedding = self.embedding_model.get_text_features([description["description"]])[0]
-                    faiss_id = self.faiss_db.add_embedding(embedding, description["duration"][0], {
-                        'duration': description["duration"],
-                        'description': description["description"]
-                    })
-                    print(f"Added description {description['description']} to FAISS database with ID {faiss_id}")
+                    chunks = chunk_text(description["description"])
+                    embeddings = self.embedding_model.get_text_features(chunks)
+                    for chunk_index, chunk in enumerate(chunks):
+                        faiss_id = self.faiss_db.add_embedding(embeddings[chunk_index], str(description["duration"][0]) + "_" + str(chunk_index), {
+                            'duration': description["duration"],
+                            'description': chunk,
+                            'objects': description["objects"]
+                        })
+                        print(f"Added description {chunk} to FAISS database with ID {faiss_id}")
             except Exception as e:
                 print(f"Error adding descriptions to FAISS database: {e}")
 

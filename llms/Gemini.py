@@ -8,7 +8,7 @@ import os
 API_KEY = os.getenv("GEMINI_API_KEY")
 
 class Gemini(BaseVideoModel, BaseLanguageModel):
-    def __init__(self, model_type="gemini-1.5-flash", tp=None):
+    def __init__(self, model_type="gemini-2.0-flash", tp=None):
         self.model_type = model_type
         self.key = API_KEY
 

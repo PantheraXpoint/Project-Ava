@@ -13,20 +13,21 @@ from llms.init_model import init_model
 from llms.BaseModel import BaseLanguageModel
 from PIL import Image
 import ulid
-from embeddings.object_search import extract_bounding_box_images
+import json
 
 # Add embeddings directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'embeddings'))
 
 from JinaCLIP import JinaCLIP
-from embeddings.object_search import SearchSystem
+from embeddings.object_search import SearchSystem, filter_and_extract_bounding_box
 from AVA.object_detect import ObjectDetectorTracker
 from AVA.event_tracker import EventTracker
-from AVA.utils import tri_view_retrieval
+from AVA.utils import tri_view_retrieval, filter_answer_generation
 
 def process_video(video_path: str, object_faiss_db_path: str = "object_embeddings.faiss", 
                                  event_faiss_db_path: str = "event_embeddings.faiss", 
-                                 object_sqlite_db_path: str = "tracked_objects.db"):
+                                 object_sqlite_db_path: str = "tracked_objects.db",
+                                 model: str = "qwenvl"):
     """
     Process video with embedding generation for new track IDs
     
@@ -55,7 +56,7 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
         sqlite_db_path=object_sqlite_db_path
     )
     print("Event generator initializing...")
-    llm = init_model("qwenvl", 1)
+    llm = init_model(model, 1)
     event_tracker = EventTracker(
         llm=llm,
         embedding_model=embedding_model,
@@ -98,15 +99,17 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
     frame_indices = []
     frames = []
     video_chunk_num_frames = int(event_processing_fps * chunk_duration)
+    event_id = 0
     while True:
         ret, frame = cap.read()
         if not ret:
             break
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
         # Only process every frame_skip frames for 10fps processing
         if frame_count % tracking_frame_skip == 0:
             # Process tracking
-            detector.process_frame(frame, frame_count)
+            detector.process_frame(frame, frame_count, event_id)
             processed_frame_count += 1
                     
         if frame_count % event_frame_skip == 0:
@@ -115,9 +118,16 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
             frames.append(Image.fromarray(frame))
         
         if len(frame_indices) == video_chunk_num_frames:
-            event_tracker.process_chunk(frames, frame_indices, video_chunk_num_frames, event_frame_skip)
+            detected_objects = [
+                {track_id: obj}
+                for track_id, obj in detector.all_tracked_objects.items()
+                if event_id in obj["event_id"]
+            ]
+            event_id = frame_indices[0]
+            event_tracker.process_chunk(frames, frame_indices, detected_objects, video_chunk_num_frames, event_frame_skip)
             frame_indices = []
             frames = []
+            detected_objects = []
         
         frame_count += 1
     # Cleanup
@@ -165,15 +175,18 @@ def search_video(query: str, video_path: str, output_dir: str,
     object_search_system = SearchSystem(object_faiss_db_path, object_sqlite_db_path, embedding_model)
     event_search_system = SearchSystem(event_faiss_db_path, None, embedding_model)
     search_results = tri_view_retrieval(query, event_search_system, object_search_system, llm, "both")
+    filtered_search_results = filter_answer_generation(search_results, llm, video_path)
     saved_images = []
-    for result in search_results:
+    for result, filtered_answer in zip(search_results, filtered_search_results):
         if result["event_description"] != "":
-            print("In event ", result["event_id"] ,": ", result["event_description"], "There are ", len(result["entities"]), " entities")
+            print("In event ", result["event_id"] ,": ", result["event_description"])
             print("The confidence score is: ", result["score"])
-        else:
-            print("There are ", len(result["entities"]), " entities.")
-        entities_result = result["entities"]
-        saved_images = extract_bounding_box_images(video_path, entities_result, output_dir, max_images)
+        # filtered_answer = filter_answer_generation(search_results, llm)
+        print(filtered_answer)
+        entities_result = [entity for entity in result["entities"] if entity["id"] in filtered_answer["track_ids"]]
+        # entities_result = result["entities"]
+        print("There are ", len(result["entities"]), " entities.")
+        saved_images = filter_and_extract_bounding_box(video_path, entities_result, output_dir, max_images)
     return search_results, saved_images
 
 def get_database_statistics(faiss_db_path: str = "embeddings.faiss",
@@ -210,18 +223,14 @@ def get_database_statistics(faiss_db_path: str = "embeddings.faiss",
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(description='Embedding-based Object Tracking and Search')
+    parser.add_argument('--model', type=str, default='qwenvl',
+                       help='Model to use')
     parser.add_argument('--video', type=str, required=True,
                        help='Path to input video file')
     parser.add_argument('--description', type=str,
                        help='Text description to search for')
     parser.add_argument('--output-dir', type=str, default='extracted_objects',
                        help='Directory to save extracted images')
-    parser.add_argument('--object-faiss-db', type=str, default='database/object_embeddings.faiss',
-                       help='Path to FAISS database file')
-    parser.add_argument('--event-faiss-db', type=str, default='database/event_embeddings.faiss',
-                       help='Path to FAISS database file')
-    parser.add_argument('--object-sqlite-db', type=str, default='database/tracked_objects.db',
-                       help='Path to SQLite database file')
     parser.add_argument('--k', type=int, default=5,
                        help='Number of search results to return')
     parser.add_argument('--max-images', type=int, default=1,
@@ -236,11 +245,18 @@ def main():
     if not os.path.exists(args.video):
         print(f"Error: Video file {args.video} does not exist")
         return
+
+    base_path = os.path.join("database", os.path.basename(args.video)[:-4])
+    if not os.path.exists(base_path):
+        os.makedirs(base_path)
+    object_faiss_db_path = os.path.join(base_path, "object_embeddings.faiss")
+    event_faiss_db_path = os.path.join(base_path, "event_embeddings.faiss")
+    object_sqlite_db_path = os.path.join(base_path, "tracked_objects.db")
     
     # Process video with embeddings
     if args.process_only and not args.description:
         print("Processing video with embedding generation...")
-        result = process_video(args.video, args.object_faiss_db, args.event_faiss_db, args.object_sqlite_db)
+        result = process_video(args.video, object_faiss_db_path, event_faiss_db_path, object_sqlite_db_path, args.model)
         if result is None:
             print("Failed to process video")
             return
@@ -249,15 +265,15 @@ def main():
     
     # Show statistics
     if args.stats:
-        get_database_statistics(args.object_faiss_db, args.object_sqlite_db)
+        get_database_statistics(object_faiss_db_path, object_sqlite_db_path)
     
     # Search and extract objects
     if args.description:
         print(f"\nSearching for objects matching: '{args.description}'")
-        llm = init_model("qwenvl", 1)
+        llm = init_model(args.model, 1)
         search_results, saved_images = search_video(
             args.description, args.video, args.output_dir,
-            args.object_faiss_db, args.event_faiss_db, args.object_sqlite_db,
+            object_faiss_db_path, event_faiss_db_path, object_sqlite_db_path,
             args.k, args.max_images, llm
         )
 

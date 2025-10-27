@@ -17,8 +17,10 @@ from .prompt import PROMPTS
 from llms.BaseModel import BaseLanguageModel
 from embeddings.object_search import SearchSystem
 
+from PIL import Image
 import numpy as np
 import tiktoken
+import cv2
 
 ENCODER = None
 
@@ -198,8 +200,11 @@ def tri_view_retrieval(
     
     # Process events if needed
     if retrieval_mode in ["events_only", "both"] and events_result:
-        events_from_events = {event["id"]: event["similarity_score"] for event in events_result}
-    
+        for event in events_result:
+            event["id"] = event["id"].split("_")[0]
+            score = event["similarity_score"]
+            events_from_events[event["id"]] = max(score, events_from_events.get(event["id"], 0))
+
     # Process entities and their relationship to events
     if retrieval_mode in ["entities_only", "both"] and entities_result:
         # Initialize events list for each entity
@@ -213,7 +218,7 @@ def tri_view_retrieval(
                 for entity in entities_result:
                     first, last = entity['first_frame'], entity['last_frame']
                     # Check if entity overlaps with event duration
-                    if (start <= first <= end) or (start <= last <= end):
+                    if (start <= first <= end) or (start <= last <= end) or (first <= start <= last) or (first <= end <= last):
                         entity['events'].append(event['id'])
         
         # Calculate entity-based event scores
@@ -227,6 +232,8 @@ def tri_view_retrieval(
     # Sort results
     events_from_events = sorted(events_from_events.items(), key=lambda x: x[1], reverse=True)
     events_from_entities = sorted(events_from_entities.items(), key=lambda x: x[1], reverse=True)
+    print("Events from events: ", events_from_events)
+    print("Events from entities: ", events_from_entities)
     
     # Calculate event scores using normalized Borda Count
     event_scores = {}
@@ -257,25 +264,97 @@ def tri_view_retrieval(
     for event_id, score in event_scores:
         # Find event description
         event_description = ""
-        if events_result:
-            matching_events = [event for event in events_result if event["id"] == event_id]
-            if matching_events:
-                event_description = matching_events[0]['faiss_metadata']['description']
-        
         # Find related entities
-        entity_ids = []
-        related_entities = []
-        if entities_result:
-            entity_ids = [entity["id"] for entity in entities_result if event_id in entity.get("events", [entity["id"]])]
-            related_entities = [entity for entity in entities_result if entity["id"] in entity_ids]
-        
+        related_entities = []        
+        if events_result:
+            matching_events = [event for event in events_result if event["id"] == event_id][0]
+            if matching_events:
+                event_duration = matching_events['faiss_metadata']['duration']
+                event_description = matching_events['faiss_metadata']['description']
+                event_objects = matching_events['faiss_metadata']['objects']
+                event_object_ids = [object['track_id'] for object in event_objects]
+                # super dirty and slow and should be fixed to using Milvus with filtering by metadata.
+                if len(event_object_ids) > top_k_for_entities:
+                    all_event_objects = object_search_system.search_by_description(rewrite_entity_response)
+                    num_of_event_objects = top_k_for_entities
+                    kept_ids = []
+                    for object in all_event_objects:
+                        if object['id'] not in event_object_ids:
+                            continue
+                        kept_ids.append(object['id'])
+                        num_of_event_objects -= 1
+                        if num_of_event_objects == 0:
+                            break
+                    event_objects = [object for object in event_objects if object['track_id'] in kept_ids]
+                # end of super dirty and slow and should be fixed to using Milvus with filtering by metadata.
+                for object in event_objects:
+                    filtered = [(f, b) for f, b in zip(object['frame_numbers'], object['bbox_history']) if event_duration[1] >= f >= event_duration[0]]
+                    if filtered:
+                        frame_numbers, bbox_history = zip(*filtered)
+                        object['frame_numbers'] = list(frame_numbers)
+                        object['bbox_history'] = list(bbox_history)
+                    related_entities.append({
+                        "id": object['track_id'],
+                        "class_name": object['class_name'],
+                        "bbox_history": object['bbox_history'],
+                        "frame_numbers": object['frame_numbers']
+                    })
+
         final_results.append({
             "event_id": [event_id],
             "event_description": event_description,
+            "event_duration": event_duration,
             "query": [query],
             "score": score,
-            "entity_ids": entity_ids,
             "entities": related_entities
         })
     
     return final_results
+
+def filter_answer_generation(results: list, llm: BaseLanguageModel, video_path: str):
+    cap = cv2.VideoCapture(video_path)
+    batch_inputs = []
+    for result in results:
+        frames = []
+        step = max(1, (result["event_duration"][1] - result["event_duration"][0]) // 10)
+        for frame_number in range(result["event_duration"][0], result["event_duration"][1]+1, step):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+            ret, frame = cap.read()
+            if not ret:
+                continue
+            frames.append(Image.fromarray(frame))
+        tracks_json = []
+        for entity in result["entities"]:
+            tracks_json.append({
+                "track_id": entity["id"],
+                "class": entity["class_name"],
+                "boxes": entity["bbox_history"]
+            })
+        tracks_json = json.dumps(tracks_json)
+        batch_inputs.append({
+            "video": frames,
+            "text": PROMPTS["filter_description"].format(query=result["query"], description=result["event_description"], tracks_json=tracks_json)
+        })
+    batch_outputs = llm.batch_generate_response(batch_inputs)
+    answers = []
+    for output in batch_outputs:
+        answers.append(parse_json_response(output))
+    return answers
+
+def parse_json_response(response: str):
+    clean = re.sub(r"^```(?:json)?|```$", "", response.strip(), flags=re.MULTILINE).strip()
+    data = json.loads(clean)
+    if isinstance(data.get("track_ids"), str):
+        try:
+            data["track_ids"] = json.loads(data["track_ids"])
+        except json.JSONDecodeError:
+            pass
+    return data
+
+
+def chunk_text(text: str):
+    """
+    Split long text into smaller chunks (approx. max_words each)
+    """
+    sentences = text.split(".")
+    return [sentence.strip() for sentence in sentences if sentence.strip()]

@@ -481,3 +481,50 @@ Output Format:
 The final output should be a concise, fact-based summary of the traffic activity with the following format:
 [Timestamp]: [Consolidated Summary of Traffic Elements (vehicle types, quantities, characteristics, actions, pedestrian activity, traffic anomalies)].
 """
+
+PROMPTS["filter_description"] = """
+You are an expert in video scene understanding and grounding natural language to tracked objects.
+
+You are given three inputs:
+1) Query: a short phrase describing what the user is asking about (e.g., "the woman", "the person walking", "the baby").
+2) Description: a full free-text scene description.
+3) Tracks: a JSON list of tracked objects, each with:
+   - track_id (int)
+   - class (string, e.g., "person", "car", "dog")
+   - boxes: a list of detections for that track across time, each item having:
+       * frame (int)
+       * bbox [x1, y1, x2, y2] in pixel coordinates (top-left, bottom-right)
+
+### Your task:
+- Identify which track_id(s) best match the Query by aligning the Description to the Tracks.
+- Only select track IDs that exist in the provided Tracks input.
+
+### Matching guidance (apply pragmatically; do NOT explain these rules in the output):
+- **Class compatibility:** Prefer tracks whose `class` matches the Query (e.g., "man/woman/person" → class "person"; "car/vehicle" → class "car"/"truck", etc.). Use reasonable synonyms/singular/plural mapping.
+- **Action & motion cues:** If the Description/Query mentions actions (e.g., walking, running, sitting, opening, carrying), infer from temporal bbox patterns (movement vs. static size/position changes) and prefer tracks whose motion plausibly fits.
+- **Spatial cues (left/right/center/front/back/near/far):** Approximate from bbox center x,y and area across frames. (Left = smaller x; right = larger x; center = mid-range; near = larger area; far = smaller area.)
+- **Temporal cues:** If the Description mentions entering/exiting/approaching/stopping, use the sequence of boxes to favor tracks that appear accordingly (e.g., moving from edge inward).
+- **Quantity cues:** If Query implies multiple entities ("two people"), return multiple track_ids that best satisfy count + other cues.
+- **Salience:** When ambiguous, favor tracks with longer visibility, clearer motion consistent with the Query, and better class match.
+- **No hallucination:** Never invent track IDs; only choose from Tracks. If nothing fits, return an empty list.
+
+### Output format constraints:
+- Output **only** valid JSON with this exact structure.
+- Do **not** include any explanations, commentary, examples, or Markdown fences.
+- Output must begin with {{ and end with }} — nothing else.
+- `track_ids` must be a JSON array of integers.
+- `final_answer` must be a single concise sentence identifying the best-matching object(s).
+- `analysis` must be a brief rationale (1–2 sentences) for why those track IDs match.
+
+### Inputs:
+Query: {query}
+Description: {description}
+Tracks (JSON): {tracks_json}
+
+### Output (strict JSON only):
+{{ 
+  "track_ids": [matching track ids], 
+  "final_answer": "<concise answer describing the relevant object(s)>", 
+  "analysis": "<brief reasoning explaining why these track ids match the query>" }}
+
+"""

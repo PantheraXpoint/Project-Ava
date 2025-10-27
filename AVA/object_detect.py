@@ -56,6 +56,7 @@ class ObjectDetectorTracker:
         
         # Colors for visualization (BGR format)
         self.colors = self._generate_colors(80)  # COCO dataset has 80 classes
+        # TODO: this could be extended to infinity if we use a open-ended video causing OOM in RAM.
         self.all_tracked_objects = {}  # Store tracked objects with history
         
     def _generate_colors(self, num_classes: int) -> List[Tuple[int, int, int]]:
@@ -289,23 +290,27 @@ class ObjectDetectorTracker:
 
         return all_tracked_objects
     
-    def process_frame(self, frame: np.ndarray, frame_count: int):
+    def process_frame(self, frame: np.ndarray, frame_count: int, event_id: int = None):
         # Detect and track objects
         tracked_objects = self.detect_and_track(frame)
         
         # Store tracked objects with history
         for tracked_object in tracked_objects:
             track_id = tracked_object["track_id"]
+            tracked_object.setdefault("event_id", [])
+            tracked_object["event_id"].append(event_id)
             bbox = [int(coord) for coord in tracked_object["bbox"]]
             confidence = tracked_object["confidence"]
             track_id_exists = track_id in self.all_tracked_objects
             if not track_id_exists:
                 self.all_tracked_objects[track_id] = {
+                    "track_id": track_id,
                     "class_id": tracked_object["class_id"],
                     "class_name": tracked_object["class_name"],
                     "bbox_history": [bbox],
                     "confidence_history": [confidence],
-                    "frame_numbers": [frame_count]
+                    "frame_numbers": [frame_count],
+                    "event_id": [event_id]
                 }
                 # Generate embedding for new track and add to FAISS database
                 self._generate_embedding(frame, bbox, track_id, frame_count, confidence, tracked_object)
@@ -314,6 +319,7 @@ class ObjectDetectorTracker:
                 self.all_tracked_objects[track_id]["bbox_history"].append(bbox)
                 self.all_tracked_objects[track_id]["confidence_history"].append(confidence)
                 self.all_tracked_objects[track_id]["frame_numbers"].append(frame_count)
+                self.all_tracked_objects[track_id]["event_id"].append(event_id)
             # Add tracked object to SQLite database
             self._add_tracked_object(tracked_object)
 
@@ -438,7 +444,8 @@ class ObjectDetectorTracker:
                         'bbox': bbox,
                         'confidence': confidence,
                         'class_id': tracked_object["class_id"],
-                        'class_name': tracked_object["class_name"]
+                        'class_name': tracked_object["class_name"],
+                        'event_id': tracked_object["event_id"]
                     }
                     faiss_id = self.faiss_db.add_embedding(embedding, id, metadata)
                     print(f"Generated embedding for new track {id} (FAISS ID: {faiss_id})")
@@ -449,7 +456,7 @@ class ObjectDetectorTracker:
 def main():
     """Main function for testing the ObjectDetectorTracker"""
     parser = argparse.ArgumentParser(description='Object Detection and Tracking with YOLOv11')
-    parser.add_argument('--model', type=str, default='yolo11n.pt', 
+    parser.add_argument('--model', type=str, default='checkpoints/yolo11n.pt', 
                        help='Path to YOLO model weights')
     parser.add_argument('--conf', type=float, default=0.5, 
                        help='Confidence threshold')
@@ -469,9 +476,9 @@ def main():
                        help='Process video for tracking only (no output video)')
     parser.add_argument('--enable-embeddings', action='store_true',
                        help='Enable embedding generation for new track IDs')
-    parser.add_argument('--faiss-db', type=str, default='embeddings.faiss',
+    parser.add_argument('--faiss-db', type=str, default='database/object_embeddings.faiss',
                        help='Path to FAISS database file')
-    parser.add_argument('--sqlite-db', type=str, default='tracked_objects.db',
+    parser.add_argument('--sqlite-db', type=str, default='database/tracked_objects.db',
                        help='Path to SQLite database file')
     
     args = parser.parse_args()
