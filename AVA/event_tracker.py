@@ -14,6 +14,7 @@ from llms.init_model import init_model
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'embeddings'))
 
 from embeddings.FAISSDB import FAISSDB
+from embeddings.Milvus import MilvusDB
 from JinaCLIP import JinaCLIP
 from llms.BaseModel import BaseVideoModel
 import json
@@ -39,7 +40,7 @@ class EventTracker:
         self.llm = llm
         self.faiss_db = None
         if self.embedding_model is not None:
-            self.faiss_db = FAISSDB(faiss_db_path, self.embedding_model.embedding_dim)
+            self.faiss_db = MilvusDB(faiss_db_path, self.embedding_model.embedding_dim)
 
     def process_chunk(self, frames: list, frame_indices: list, detected_objects: list, video_chunk_num_frames: int, frame_skip: int):
         """

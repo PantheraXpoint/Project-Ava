@@ -12,6 +12,7 @@ from PIL import Image
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'embeddings'))
 
 from embeddings.FAISSDB import FAISSDB
+from embeddings.Milvus import MilvusDB
 from embeddings.SQLiteDB import SQLiteDB
 from JinaCLIP import JinaCLIP
 from AVA.tracker import CustomTracker
@@ -51,7 +52,7 @@ class ObjectDetectorTracker:
         self.sqlite_db = None
         
         if self.embedding_model is not None:
-            self.faiss_db = FAISSDB(faiss_db_path, self.embedding_model.embedding_dim)
+            self.faiss_db = MilvusDB(faiss_db_path, self.embedding_model.embedding_dim)
             self.sqlite_db = SQLiteDB(sqlite_db_path)
         
         # Colors for visualization (BGR format)
@@ -319,7 +320,8 @@ class ObjectDetectorTracker:
                 self.all_tracked_objects[track_id]["bbox_history"].append(bbox)
                 self.all_tracked_objects[track_id]["confidence_history"].append(confidence)
                 self.all_tracked_objects[track_id]["frame_numbers"].append(frame_count)
-                self.all_tracked_objects[track_id]["event_id"].append(event_id)
+                if event_id not in self.all_tracked_objects[track_id]["event_id"]:
+                    self.all_tracked_objects[track_id]["event_id"].append(event_id)
             # Add tracked object to SQLite database
             self._add_tracked_object(tracked_object)
 
@@ -409,7 +411,8 @@ class ObjectDetectorTracker:
                 class_name=obj_data["class_name"],
                 bbox_history=obj_data["bbox_history"],
                 confidence_history=obj_data["confidence_history"],
-                frame_numbers=obj_data["frame_numbers"]
+                frame_numbers=obj_data["frame_numbers"],
+                event_id=obj_data["event_id"]
             )
     
     def _generate_embedding(self, frame: np.ndarray, bbox: List[int], id: str, frame_count: int, confidence: float, tracked_object: Dict):
@@ -447,7 +450,7 @@ class ObjectDetectorTracker:
                         'class_name': tracked_object["class_name"],
                         'event_id': tracked_object["event_id"]
                     }
-                    faiss_id = self.faiss_db.add_embedding(embedding, id, metadata)
+                    faiss_id = self.faiss_db.add_embedding(embedding, str(id), metadata)
                     print(f"Generated embedding for new track {id} (FAISS ID: {faiss_id})")
                     
             except Exception as e:

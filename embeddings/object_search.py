@@ -3,6 +3,7 @@ import numpy as np
 import os
 from typing import List, Dict, Tuple, Optional
 from FAISSDB import FAISSDB
+from Milvus import MilvusDB
 from SQLiteDB import SQLiteDB
 from JinaCLIP import JinaCLIP
 
@@ -20,14 +21,14 @@ class SearchSystem:
             sqlite_db_path: Path to SQLite database
             embedding_model: JinaCLIP embedding model
         """
-        self.faiss_db = FAISSDB(faiss_db_path, embedding_model.embedding_dim)
+        self.faiss_db = MilvusDB(faiss_db_path, embedding_model.embedding_dim)
         if sqlite_db_path is not None:
             self.sqlite_db = SQLiteDB(sqlite_db_path)
         else:
             self.sqlite_db = None
         self.embedding_model = embedding_model
     
-    def search_by_description(self, description: str, k: Optional[int] = None) -> List[Dict]:
+    def search_by_description(self, description: str, k: Optional[int] = None, filter: Optional[Dict] = None) -> List[Dict]:
         """
         Search for objects by text description
         
@@ -44,7 +45,8 @@ class SearchSystem:
         # Search in FAISS database
         if k is None:
             k = len(self.faiss_db.get_all_ids())
-        faiss_results = self.faiss_db.search(description_embedding, k)
+        filter_expr = self.faiss_db.build_filter_expression(filter) if filter is not None else None
+        faiss_results = self.faiss_db.search(description_embedding, k, filter_expr)
         
         # Get additional information from SQLite database
         results = []
@@ -66,6 +68,7 @@ class SearchSystem:
                     'bbox_history': sqlite_info['bbox_history'],
                     'confidence_history': sqlite_info['confidence_history'],
                     'frame_numbers': sqlite_info['frame_numbers'],
+                    'event_id': sqlite_info['event_id'],
                     'faiss_metadata': metadata
                 }
                 results.append(result)

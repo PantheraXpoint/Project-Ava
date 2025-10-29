@@ -47,7 +47,7 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
     
     print("Initializing object detector with embedding support...")
     detector = ObjectDetectorTracker(
-        model_path="checkpoints/yolo11n.pt",
+        model_path="checkpoints/yolo11l.pt",
         conf_threshold=0.5,
         iou_threshold=0.5,
         tracker_config="config/tracker.yaml",
@@ -119,7 +119,7 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
         
         if len(frame_indices) == video_chunk_num_frames:
             detected_objects = [
-                {track_id: obj}
+                track_id
                 for track_id, obj in detector.all_tracked_objects.items()
                 if event_id in obj["event_id"]
             ]
@@ -183,9 +183,9 @@ def search_video(query: str, video_path: str, output_dir: str,
             print("The confidence score is: ", result["score"])
         # filtered_answer = filter_answer_generation(search_results, llm)
         print(filtered_answer)
-        entities_result = [entity for entity in result["entities"] if entity["id"] in filtered_answer["track_ids"]]
-        # entities_result = result["entities"]
-        print("There are ", len(result["entities"]), " entities.")
+        # entities_result = [entity for entity in result["entities"] if int(entity["id"]) in filtered_answer["track_ids"]]
+        entities_result = result["entities"]
+        print("There are ", len(filtered_answer["track_ids"]), " entities.")
         saved_images = filter_and_extract_bounding_box(video_path, entities_result, output_dir, max_images)
     return search_results, saved_images
 
@@ -249,8 +249,8 @@ def main():
     base_path = os.path.join("database", os.path.basename(args.video)[:-4])
     if not os.path.exists(base_path):
         os.makedirs(base_path)
-    object_faiss_db_path = os.path.join(base_path, "object_embeddings.faiss")
-    event_faiss_db_path = os.path.join(base_path, "event_embeddings.faiss")
+    object_faiss_db_path = os.path.join(base_path, "object_embeddings.db")
+    event_faiss_db_path = os.path.join(base_path, "event_embeddings.db")
     object_sqlite_db_path = os.path.join(base_path, "tracked_objects.db")
     
     # Process video with embeddings

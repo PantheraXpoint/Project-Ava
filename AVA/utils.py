@@ -207,27 +207,13 @@ def tri_view_retrieval(
 
     # Process entities and their relationship to events
     if retrieval_mode in ["entities_only", "both"] and entities_result:
-        # Initialize events list for each entity
-        
-        # If we have both events and entities, find overlaps
-        if retrieval_mode == "both" and events_result:
-            for entity in entities_result:
-                entity.setdefault('events', [])
-            for event in events_result:
-                start, end = event['faiss_metadata']['duration']
-                for entity in entities_result:
-                    first, last = entity['first_frame'], entity['last_frame']
-                    # Check if entity overlaps with event duration
-                    if (start <= first <= end) or (start <= last <= end) or (first <= start <= last) or (first <= end <= last):
-                        entity['events'].append(event['id'])
-        
         # Calculate entity-based event scores
         for entity in entities_result:
-            for event_id in entity.get("events", [entity["id"]]):
+            for event_id in entity.get("event_id", [entity["id"]]):
                 if event_id not in events_from_entities:
                     events_from_entities[event_id] = entity["similarity_score"]
                 else:
-                    events_from_entities[event_id] += entity["similarity_score"]
+                    events_from_entities[event_id] = max(events_from_entities[event_id], entity["similarity_score"])
     
     # Sort results
     events_from_events = sorted(events_from_events.items(), key=lambda x: x[1], reverse=True)
@@ -259,6 +245,8 @@ def tri_view_retrieval(
     
     # sort event_scores by score
     event_scores = sorted(event_scores.items(), key=lambda x: x[1], reverse=True)
+    # This must be considered to use or not.
+    event_scores = event_scores[:top_k_for_events] if len(event_scores) > top_k_for_events else event_scores
     # Build final results
     final_results = []
     for event_id, score in event_scores:
@@ -267,26 +255,14 @@ def tri_view_retrieval(
         # Find related entities
         related_entities = []        
         if events_result:
-            matching_events = [event for event in events_result if event["id"] == event_id][0]
-            if matching_events:
-                event_duration = matching_events['faiss_metadata']['duration']
+            matching_events = [event for event in events_result if event["id"] == event_id]
+            if len(matching_events) > 0:
+                matching_events = matching_events[0]
+                event_duration = list(map(int, matching_events['faiss_metadata']['duration'].split(",")))
                 event_description = matching_events['faiss_metadata']['description']
-                event_objects = matching_events['faiss_metadata']['objects']
-                event_object_ids = [object['track_id'] for object in event_objects]
-                # super dirty and slow and should be fixed to using Milvus with filtering by metadata.
-                if len(event_object_ids) > top_k_for_entities:
-                    all_event_objects = object_search_system.search_by_description(rewrite_entity_response)
-                    num_of_event_objects = top_k_for_entities
-                    kept_ids = []
-                    for object in all_event_objects:
-                        if object['id'] not in event_object_ids:
-                            continue
-                        kept_ids.append(object['id'])
-                        num_of_event_objects -= 1
-                        if num_of_event_objects == 0:
-                            break
-                    event_objects = [object for object in event_objects if object['track_id'] in kept_ids]
-                # end of super dirty and slow and should be fixed to using Milvus with filtering by metadata.
+                event_objects = object_search_system.search_by_description(event_description,
+                                                                        top_k_for_entities,
+                                                                        {"track_id": matching_events['faiss_metadata']['objects'].split(",")})
                 for object in event_objects:
                     filtered = [(f, b) for f, b in zip(object['frame_numbers'], object['bbox_history']) if event_duration[1] >= f >= event_duration[0]]
                     if filtered:
@@ -294,7 +270,7 @@ def tri_view_retrieval(
                         object['frame_numbers'] = list(frame_numbers)
                         object['bbox_history'] = list(bbox_history)
                     related_entities.append({
-                        "id": object['track_id'],
+                        "id": int(object['id']),
                         "class_name": object['class_name'],
                         "bbox_history": object['bbox_history'],
                         "frame_numbers": object['frame_numbers']
@@ -316,19 +292,25 @@ def filter_answer_generation(results: list, llm: BaseLanguageModel, video_path: 
     batch_inputs = []
     for result in results:
         frames = []
-        step = max(1, (result["event_duration"][1] - result["event_duration"][0]) // 10)
+        # dirty code, should be cleaned up.
+        step = result["entities"][0]['frame_numbers'][1] - result["entities"][0]['frame_numbers'][0]
         for frame_number in range(result["event_duration"][0], result["event_duration"][1]+1, step):
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
             ret, frame = cap.read()
             if not ret:
                 continue
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             frames.append(Image.fromarray(frame))
         tracks_json = []
         for entity in result["entities"]:
+            bbox_history = entity["bbox_history"]
+            h, w = frame.shape[:2]
+            bbox_history = [(int(x1/w*1000), int(y1/h*1000), int(x2/w*1000), int(y2/h*1000)) for x1, y1, x2, y2 in bbox_history]
             tracks_json.append({
                 "track_id": entity["id"],
                 "class": entity["class_name"],
-                "boxes": entity["bbox_history"]
+                "frame_numbers": [int(frame - entity['frame_numbers'][0]) for frame in entity["frame_numbers"]],
+                "boxes": bbox_history
             })
         tracks_json = json.dumps(tracks_json)
         batch_inputs.append({

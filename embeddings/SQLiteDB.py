@@ -37,6 +37,7 @@ class SQLiteDB:
                 bbox_history TEXT NOT NULL,  -- JSON string of bbox coordinates
                 confidence_history TEXT NOT NULL,  -- JSON string of confidence scores
                 frame_numbers TEXT NOT NULL,  -- JSON string of frame numbers
+                event_id TEXT NOT NULL,  -- JSON string of event IDs
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -61,7 +62,7 @@ class SQLiteDB:
     
     def add_tracked_object(self, track_id: int, class_id: int, class_name: str, 
                           bbox_history: List[List[int]], confidence_history: List[float], 
-                          frame_numbers: List[int]) -> bool:
+                          frame_numbers: List[int], event_id: list[int]) -> bool:
         """
         Add or update tracked object information
         
@@ -72,7 +73,7 @@ class SQLiteDB:
             bbox_history: List of bounding box coordinates
             confidence_history: List of confidence scores
             frame_numbers: List of frame numbers where object was detected
-            
+            event_id: List of event IDs where object was detected
         Returns:
             True if successful, False otherwise
         """
@@ -90,21 +91,21 @@ class SQLiteDB:
                     UPDATE tracked_objects 
                     SET class_id = ?, class_name = ?, last_frame = ?, total_frames = ?,
                         bbox_history = ?, confidence_history = ?, frame_numbers = ?,
-                        updated_at = CURRENT_TIMESTAMP
+                        event_id = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE track_id = ?
                 ''', (class_id, class_name, max(frame_numbers), len(frame_numbers),
                       json.dumps(bbox_history), json.dumps(confidence_history),
-                      json.dumps(frame_numbers), track_id))
+                      json.dumps(frame_numbers), json.dumps(event_id), track_id))
             else:
                 # Insert new record
                 cursor.execute('''
                     INSERT INTO tracked_objects 
                     (track_id, class_id, class_name, first_frame, last_frame, total_frames,
-                     bbox_history, confidence_history, frame_numbers)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     bbox_history, confidence_history, frame_numbers, event_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (track_id, class_id, class_name, min(frame_numbers), max(frame_numbers),
                       len(frame_numbers), json.dumps(bbox_history), json.dumps(confidence_history),
-                      json.dumps(frame_numbers)))
+                      json.dumps(frame_numbers), json.dumps(event_id)))
             
             conn.commit()
             conn.close()
@@ -147,8 +148,9 @@ class SQLiteDB:
                     'bbox_history': json.loads(row[7]),
                     'confidence_history': json.loads(row[8]),
                     'frame_numbers': json.loads(row[9]),
-                    'created_at': row[10],
-                    'updated_at': row[11]
+                    'event_id': json.loads(row[10]),
+                    'created_at': row[11],
+                    'updated_at': row[12]
                 }
             return None
             

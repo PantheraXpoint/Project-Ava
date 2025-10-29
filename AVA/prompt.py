@@ -492,8 +492,8 @@ You are given three inputs:
    - track_id (int)
    - class (string, e.g., "person", "car", "dog")
    - boxes: a list of detections for that track across time, each item having:
-       * frame (int)
-       * bbox [x1, y1, x2, y2] in pixel coordinates (top-left, bottom-right)
+       * frame_number (int), with the corresponding frame number in the given frames sequence.
+       * bbox [x_min, y_min, x_max, y_max] in pixel coordinates (top-left, bottom-right), this is normalized to 1000x1000 pixels.
 
 ### Your task:
 - Identify which track_id(s) best match the Query by aligning the Description to the Tracks.

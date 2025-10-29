@@ -162,11 +162,10 @@ def batch_generate_descriptions_external(
         print(f"Error generating descriptions: {e}")
     descriptions = []
     for i in range(len(batch_descriptions)):
-        detected_objects_dict = list_2_dict(detected_objects)
         descriptions.append({
             "duration": [frame_indices[i], frame_indices[i + batch_size - 1] + frame_skip - 1],
             "description": batch_descriptions[i],
-            "objects": detected_objects_dict,
+            "objects": detected_objects,
         })
     return descriptions
 
