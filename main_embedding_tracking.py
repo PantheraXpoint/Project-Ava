@@ -104,7 +104,6 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
         ret, frame = cap.read()
         if not ret:
             break
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
         # Only process every frame_skip frames for 10fps processing
         if frame_count % tracking_frame_skip == 0:
@@ -115,7 +114,7 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
         if frame_count % event_frame_skip == 0:
             # Process event
             frame_indices.append(frame_count)
-            frames.append(Image.fromarray(frame))
+            frames.append(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
         
         if len(frame_indices) == video_chunk_num_frames:
             detected_objects = [

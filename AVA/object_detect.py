@@ -215,27 +215,6 @@ class ObjectDetectorTracker:
                 # Detect and track objects
                 tracked_objects = self.detect_and_track(frame)
                 
-                # Store tracked objects for this frame
-                for tracked_object in tracked_objects:
-                    track_id = tracked_object["track_id"]
-                    bbox = [int(coord) for coord in tracked_object["bbox"]]
-                    confidence = tracked_object["confidence"]
-                    track_id_exists = track_id in self.all_tracked_objects
-                    if not track_id_exists:
-                        print(f"New track ID: {tracked_object}")
-                        self.all_tracked_objects[track_id] = {
-                            "class_id": tracked_object["class_id"],
-                            "class_name": tracked_object["class_name"],
-                            "bbox_history": [bbox],
-                            "confidence_history": [confidence],
-                            "frame_numbers": [frame_count]
-                        }
-                    else:
-                        # Append to existing track
-                        self.all_tracked_objects[track_id]["bbox_history"].append(bbox)
-                        self.all_tracked_objects[track_id]["confidence_history"].append(confidence)
-                        self.all_tracked_objects[track_id]["frame_numbers"].append(frame_count)
-                
                 processed_frame_count += 1
                 
                 if visualize:
@@ -324,6 +303,8 @@ class ObjectDetectorTracker:
                     self.all_tracked_objects[track_id]["event_id"].append(event_id)
             # Add tracked object to SQLite database
             self._add_tracked_object(tracked_object)
+        # vis_frame = self.visualize_results(frame, tracked_objects)
+        # cv2.imwrite(f"debug/tracked_objects_{frame_count}.jpg", vis_frame)
 
     def process_video_tracking_only(self, video_path: str) -> List[List[Dict]]:
         """
@@ -434,8 +415,8 @@ class ObjectDetectorTracker:
                 
                 if roi.size > 0:
                     # Convert BGR to RGB for JinaCLIP
-                    roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
-                    
+                    # roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+                    roi_rgb = roi
                     # Generate embedding
                     roi_pil = Image.fromarray(roi_rgb)
                     embedding = self.embedding_model.get_image_features([roi_pil])[0]
@@ -459,7 +440,7 @@ class ObjectDetectorTracker:
 def main():
     """Main function for testing the ObjectDetectorTracker"""
     parser = argparse.ArgumentParser(description='Object Detection and Tracking with YOLOv11')
-    parser.add_argument('--model', type=str, default='checkpoints/yolo11n.pt', 
+    parser.add_argument('--model', type=str, default='checkpoints/yolo11l.pt', 
                        help='Path to YOLO model weights')
     parser.add_argument('--conf', type=float, default=0.5, 
                        help='Confidence threshold')

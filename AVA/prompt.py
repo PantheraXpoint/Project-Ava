@@ -485,7 +485,7 @@ The final output should be a concise, fact-based summary of the traffic activity
 PROMPTS["filter_description"] = """
 You are an expert in video scene understanding and grounding natural language to tracked objects.
 
-You are given three inputs:
+You are given four inputs:
 1) Query: a short phrase describing what the user is asking about (e.g., "the woman", "the person walking", "the baby").
 2) Description: a full free-text scene description.
 3) Tracks: a JSON list of tracked objects, each with:
@@ -494,6 +494,7 @@ You are given three inputs:
    - boxes: a list of detections for that track across time, each item having:
        * frame_number (int), with the corresponding frame number in the given frames sequence.
        * bbox [x_min, y_min, x_max, y_max] in pixel coordinates (top-left, bottom-right), this is normalized to 1000x1000 pixels.
+4) Frames: a list of images where all detected or tracked objects are already annotated with bounding boxes labeled as ID: <number>” and their class name (e.g., ID: 1, person”).
 
 ### Your task:
 - Identify which track_id(s) best match the Query by aligning the Description to the Tracks.
@@ -527,4 +528,46 @@ Tracks (JSON): {tracks_json}
   "final_answer": "<concise answer describing the relevant object(s)>", 
   "analysis": "<brief reasoning explaining why these track ids match the query>" }}
 
+"""
+
+PROMPTS["visual_filter_description"] = """
+You are an expert in visual scene understanding and object grounding.
+
+You are given:
+1) Query: a short natural language phrase describing what the user is asking about (e.g., "the man in blue", "the car on the right").
+2) Image: a single image where all detected or tracked objects are already annotated with bounding boxes labeled as ID: <number>” and their class name (e.g., ID: 1, person”).
+3) Description: a free-text summary describing the visual scene context.
+
+### Your task:
+- Identify which **track_id(s)** in the image best match the Query, using both the visual information and the contextual description.
+- You can directly “see” the boxes and labels drawn on the image — use them as visual anchors.
+
+### Matching guidance (apply visually; do NOT explain these in output):
+- **Class match:** Align nouns in the Query (e.g., person, car, dog) to the labeled class near each ID”.
+- **Appearance cues:** Use visible properties such as clothing color, object color, or shape.
+- **Spatial cues:** Infer left/right/center/top/bottom/near/far from bounding box placement and size.
+- **Interaction cues:** If the Query or Description mentions actions or relations (“the person holding the cup”, “the car next to the bike”), visually match based on proximity or orientation.
+- **Multiplicity cues:** If multiple entities are requested (“two people”), return multiple relevant track IDs.
+- **Confidence:** When uncertain, favor the most visually salient or contextually consistent candidate.
+- **No guessing:** Only output track IDs visible and labeled on the image.
+
+### Output format constraints:
+- Output **only** valid JSON in the following exact structure.
+- Do NOT include explanations, Markdown, or extra text.
+- Output must begin with {{ and end with }}.
+- `track_ids` must be an array of integers.
+- `final_answer` should be a short, direct identification of the chosen object(s).
+- `analysis` should be a brief rationale (1–2 sentences) summarizing the visual reasoning.
+
+### Inputs:
+Query: {query}
+Description: {description}
+Image: (contains bounding boxes labeled like ID: 1, person”, ID: 2, car”, etc.)
+
+### Output (strict JSON only):
+{{ 
+  "track_ids": [matching track ids], 
+  "final_answer": "<concise answer describing the identified object(s)>", 
+  "analysis": "<brief reasoning based on visible cues and context>" 
+}}
 """

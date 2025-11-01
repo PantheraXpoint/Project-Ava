@@ -292,30 +292,38 @@ def filter_answer_generation(results: list, llm: BaseLanguageModel, video_path: 
     batch_inputs = []
     for result in results:
         frames = []
-        # dirty code, should be cleaned up.
+        # TODO: dirty code, should be cleaned up.
         step = result["entities"][0]['frame_numbers'][1] - result["entities"][0]['frame_numbers'][0]
         for frame_number in range(result["event_duration"][0], result["event_duration"][1]+1, step):
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
             ret, frame = cap.read()
             if not ret:
                 continue
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frames.append(Image.fromarray(frame))
+            for entity in result["entities"]:
+                if frame_number in entity["frame_numbers"]:
+                    bbox_history = entity["bbox_history"][entity["frame_numbers"].index(frame_number)]
+                    cv2.rectangle(frame, bbox_history[:2], bbox_history[2:], (0, 255, 0), 1)
+                    cv2.putText(frame,"Track ID: " + str(entity["id"]) + ", " + entity["class_name"],
+                                (bbox_history[0], bbox_history[1]-5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
+            cv2.imwrite(f"debug/frame_{frame_number}.jpg", frame)
+            frames.append(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
         tracks_json = []
         for entity in result["entities"]:
             bbox_history = entity["bbox_history"]
             h, w = frame.shape[:2]
             bbox_history = [(int(x1/w*1000), int(y1/h*1000), int(x2/w*1000), int(y2/h*1000)) for x1, y1, x2, y2 in bbox_history]
+            frame_numbers_normalized = [int(frame - result["event_duration"][0]) for frame in entity["frame_numbers"]]
             tracks_json.append({
                 "track_id": entity["id"],
                 "class": entity["class_name"],
-                "frame_numbers": [int(frame - entity['frame_numbers'][0]) for frame in entity["frame_numbers"]],
+                "frame_numbers": frame_numbers_normalized,
                 "boxes": bbox_history
             })
         tracks_json = json.dumps(tracks_json)
         batch_inputs.append({
             "video": frames,
             "text": PROMPTS["filter_description"].format(query=result["query"], description=result["event_description"], tracks_json=tracks_json)
+            # "text": PROMPTS["visual_filter_description"].format(query=result["query"], description=result["event_description"])
         })
     batch_outputs = llm.batch_generate_response(batch_inputs)
     answers = []
