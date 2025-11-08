@@ -14,6 +14,7 @@ from llms.BaseModel import BaseLanguageModel
 from PIL import Image
 import ulid
 import json
+import concurrent.futures
 
 # Add embeddings directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'embeddings'))
@@ -27,7 +28,7 @@ from AVA.utils import tri_view_retrieval, filter_answer_generation
 def process_video(video_path: str, object_faiss_db_path: str = "object_embeddings.faiss", 
                                  event_faiss_db_path: str = "event_embeddings.faiss", 
                                  object_sqlite_db_path: str = "tracked_objects.db",
-                                 model: str = "qwenvl"):
+                                 llm: BaseLanguageModel = None):
     """
     Process video with embedding generation for new track IDs
     
@@ -56,7 +57,6 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
         sqlite_db_path=object_sqlite_db_path
     )
     print("Event generator initializing...")
-    llm = init_model(model, 1)
     event_tracker = EventTracker(
         llm=llm,
         embedding_model=embedding_model,
@@ -100,6 +100,8 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
     frames = []
     video_chunk_num_frames = int(event_processing_fps * chunk_duration)
     event_id = 0
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+    future_chunk = None
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -123,7 +125,12 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
                 if event_id in obj["event_id"]
             ]
             event_id = frame_indices[0]
-            event_tracker.process_chunk(frames, frame_indices, detected_objects, video_chunk_num_frames, event_frame_skip)
+            if future_chunk and not future_chunk.done():
+                print("Waiting for previous task to complete...")
+                future_chunk.result()
+            future_chunk = executor.submit(event_tracker.process_chunk, frames, frame_indices,
+                                            detected_objects, video_chunk_num_frames,
+                                            event_frame_skip)
             frame_indices = []
             frames = []
             detected_objects = []
@@ -131,6 +138,7 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
         frame_count += 1
     # Cleanup
     cap.release()
+    executor.shutdown(wait=True)
     
     elapsed_time = time.time() - start_time
     processing_avg_fps = processed_frame_count / elapsed_time
@@ -184,7 +192,7 @@ def search_video(query: str, video_path: str, output_dir: str,
         print(filtered_answer)
         # entities_result = [entity for entity in result["entities"] if int(entity["id"]) in filtered_answer["track_ids"]]
         entities_result = result["entities"]
-        print("There are ", len(filtered_answer["track_ids"]), " entities.")
+        print("There are ", len(filtered_answer.get("track_ids", [])), " entities.")
         saved_images = filter_and_extract_bounding_box(video_path, entities_result, output_dir, max_images)
     return search_results, saved_images
 
@@ -240,7 +248,7 @@ def main():
                        help='Only process video without searching')
     
     args = parser.parse_args()
-    
+    llm = init_model(args.model, 1)
     if not os.path.exists(args.video):
         print(f"Error: Video file {args.video} does not exist")
         return
@@ -255,7 +263,11 @@ def main():
     # Process video with embeddings
     if args.process_only and not args.description:
         print("Processing video with embedding generation...")
-        result = process_video(args.video, object_faiss_db_path, event_faiss_db_path, object_sqlite_db_path, args.model)
+        import time
+        start_time = time.time()
+        result = process_video(args.video, object_faiss_db_path, event_faiss_db_path, object_sqlite_db_path, llm)
+        end_time = time.time()
+        print(f"Time taken for video processing: {end_time - start_time} seconds")
         if result is None:
             print("Failed to process video")
             return
@@ -269,7 +281,6 @@ def main():
     # Search and extract objects
     if args.description:
         print(f"\nSearching for objects matching: '{args.description}'")
-        llm = init_model(args.model, 1)
         search_results, saved_images = search_video(
             args.description, args.video, args.output_dir,
             object_faiss_db_path, event_faiss_db_path, object_sqlite_db_path,

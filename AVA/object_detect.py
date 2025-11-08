@@ -16,6 +16,7 @@ from embeddings.Milvus import MilvusDB
 from embeddings.SQLiteDB import SQLiteDB
 from JinaCLIP import JinaCLIP
 from AVA.tracker import CustomTracker
+MAX_TRACKED_OBJECTS = 30
 
 
 class ObjectDetectorTracker:
@@ -303,6 +304,11 @@ class ObjectDetectorTracker:
                     self.all_tracked_objects[track_id]["event_id"].append(event_id)
             # Add tracked object to SQLite database
             self._add_tracked_object(tracked_object)
+        if len(self.all_tracked_objects) > MAX_TRACKED_OBJECTS:
+            # Remove the oldest tracked object
+            oldest_tracked_object = min(self.all_tracked_objects.items(), key=lambda x: x[1]["frame_numbers"][0])
+            # print(f"Removing oldest tracked object {oldest_tracked_object[0]}")
+            del self.all_tracked_objects[oldest_tracked_object[0]]
         # vis_frame = self.visualize_results(frame, tracked_objects)
         # cv2.imwrite(f"debug/tracked_objects_{frame_count}.jpg", vis_frame)
 

@@ -260,9 +260,12 @@ def tri_view_retrieval(
                 matching_events = matching_events[0]
                 event_duration = list(map(int, matching_events['faiss_metadata']['duration'].split(",")))
                 event_description = matching_events['faiss_metadata']['description']
+                filter_objects = None
+                if matching_events['faiss_metadata']['objects'] != "":
+                    filter_objects = {"track_id": matching_events['faiss_metadata']['objects'].split(",")}
                 event_objects = object_search_system.search_by_description(event_description,
                                                                         top_k_for_entities,
-                                                                        {"track_id": matching_events['faiss_metadata']['objects'].split(",")})
+                                                                        filter_objects)
                 for object in event_objects:
                     filtered = [(f, b) for f, b in zip(object['frame_numbers'], object['bbox_history']) if event_duration[1] >= f >= event_duration[0]]
                     if filtered:
@@ -293,7 +296,16 @@ def filter_answer_generation(results: list, llm: BaseLanguageModel, video_path: 
     for result in results:
         frames = []
         # TODO: dirty code, should be cleaned up.
-        step = result["entities"][0]['frame_numbers'][1] - result["entities"][0]['frame_numbers'][0]
+        try:
+            step = result["entities"][0]['frame_numbers'][1] - result["entities"][0]['frame_numbers'][0]
+        except:
+            step = 2
+        num_frames = 10
+        new_step = (result["event_duration"][1] - result["event_duration"][0]) // num_frames
+        i = 1
+        while step * i <= new_step:
+            i += 1
+        step = step * (i - 1) if i > 1 else step
         for frame_number in range(result["event_duration"][0], result["event_duration"][1]+1, step):
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
             ret, frame = cap.read()
@@ -305,8 +317,8 @@ def filter_answer_generation(results: list, llm: BaseLanguageModel, video_path: 
                     cv2.rectangle(frame, bbox_history[:2], bbox_history[2:], (0, 255, 0), 1)
                     cv2.putText(frame,"Track ID: " + str(entity["id"]) + ", " + entity["class_name"],
                                 (bbox_history[0], bbox_history[1]-5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
-            cv2.imwrite(f"debug/frame_{frame_number}.jpg", frame)
-            frames.append(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+            # cv2.imwrite(f"debug/frame_{frame_number}.jpg", frame)
+            # frames.append(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
         tracks_json = []
         for entity in result["entities"]:
             bbox_history = entity["bbox_history"]
