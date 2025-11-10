@@ -61,8 +61,8 @@ class SQLiteDB:
         conn.close()
     
     def add_tracked_object(self, track_id: int, class_id: int, class_name: str, 
-                          bbox_history: List[List[int]], confidence_history: List[float], 
-                          frame_numbers: List[int], event_id: list[int]) -> bool:
+                          bbox_history: List[int], confidence_history: float, 
+                          frame_numbers: int, event_id: int) -> bool:
         """
         Add or update tracked object information
         
@@ -70,12 +70,12 @@ class SQLiteDB:
             track_id: Unique track ID
             class_id: Object class ID
             class_name: Object class name
-            bbox_history: List of bounding box coordinates
-            confidence_history: List of confidence scores
-            frame_numbers: List of frame numbers where object was detected
-            event_id: List of event IDs where object was detected
+            bbox_history: bounding box coordinates
+            confidence_history: confidence scores
+            frame_numbers: frame number where object was detected
+            event_id: event ID where object was detected
         Returns:
-            True if successful, False otherwise
+            True if existing, False otherwise
         """
         try:
             conn = sqlite3.connect(self.db_path)
@@ -86,18 +86,44 @@ class SQLiteDB:
             existing = cursor.fetchone()
             
             if existing:
-                # Update existing record
+                # Update existing record, append new history to existing JSON lists
+                cursor.execute('SELECT bbox_history, confidence_history, frame_numbers, event_id FROM tracked_objects WHERE track_id = ? AND class_id = ?', (track_id, class_id))
+                existing_histories = cursor.fetchone()
+                if existing_histories:
+                    # Load existing histories
+                    existing_bbox_history = json.loads(existing_histories[0])
+                    existing_confidence_history = json.loads(existing_histories[1])
+                    existing_frame_numbers = json.loads(existing_histories[2])
+                    existing_event_id = json.loads(existing_histories[3])
+
+                    # Append new histories
+                    updated_bbox_history = existing_bbox_history + [bbox_history]
+                    updated_confidence_history = existing_confidence_history + [confidence_history]
+                    updated_frame_numbers = existing_frame_numbers + [frame_numbers]
+                    updated_event_id = existing_event_id
+                    if event_id not in existing_event_id:
+                        updated_event_id = existing_event_id + [event_id]
+                else:
+                    updated_bbox_history = bbox_history
+                    updated_confidence_history = confidence_history
+                    updated_frame_numbers = frame_numbers
+                    updated_event_id = event_id
+
                 cursor.execute('''
                     UPDATE tracked_objects 
                     SET class_id = ?, class_name = ?, last_frame = ?, total_frames = ?,
                         bbox_history = ?, confidence_history = ?, frame_numbers = ?,
                         event_id = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE track_id = ?
-                ''', (class_id, class_name, max(frame_numbers), len(frame_numbers),
-                      json.dumps(bbox_history), json.dumps(confidence_history),
-                      json.dumps(frame_numbers), json.dumps(event_id), track_id))
+                ''', (class_id, class_name, max(updated_frame_numbers), len(updated_frame_numbers),
+                      json.dumps(updated_bbox_history), json.dumps(updated_confidence_history),
+                      json.dumps(updated_frame_numbers), json.dumps(updated_event_id), track_id))
             else:
                 # Insert new record
+                bbox_history = [bbox_history]
+                confidence_history = [confidence_history]
+                frame_numbers = [frame_numbers]
+                event_id = [event_id]
                 cursor.execute('''
                     INSERT INTO tracked_objects 
                     (track_id, class_id, class_name, first_frame, last_frame, total_frames,
@@ -109,7 +135,9 @@ class SQLiteDB:
             
             conn.commit()
             conn.close()
-            return True
+            if existing:
+                return True
+            return False
             
         except Exception as e:
             print(f"Error adding tracked object: {e}")

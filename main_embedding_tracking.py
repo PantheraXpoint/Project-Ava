@@ -98,6 +98,7 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
     processed_frame_count = 0
     frame_indices = []
     frames = []
+    detected_objects = []
     video_chunk_num_frames = int(event_processing_fps * chunk_duration)
     event_id = 0
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
@@ -110,7 +111,7 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
         # Only process every frame_skip frames for 10fps processing
         if frame_count % tracking_frame_skip == 0:
             # Process tracking
-            detector.process_frame(frame, frame_count, event_id)
+            detected_objects = detector.process_frame(frame, frame_count, event_id, detected_objects)
             processed_frame_count += 1
                     
         if frame_count % event_frame_skip == 0:
@@ -120,11 +121,6 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
             frames.append(Image.fromarray(cv2.cvtColor(cv2.resize(frame, (1280, 720)), cv2.COLOR_BGR2RGB)))
         
         if len(frame_indices) == video_chunk_num_frames:
-            detected_objects = [
-                track_id
-                for track_id, obj in detector.all_tracked_objects.items()
-                if event_id in obj["event_id"]
-            ]
             event_id = frame_indices[0]
             if future_chunk and not future_chunk.done():
                 print("Waiting for previous task to complete...")
@@ -143,13 +139,11 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
     
     elapsed_time = time.time() - start_time
     processing_avg_fps = processed_frame_count / elapsed_time
-    total_objects = len(detector.all_tracked_objects)
     
     print(f"Processing complete!")
     print(f"Total input frames: {frame_count}")
     print(f"Processed frames: {processed_frame_count}")
     print(f"Processing speed: {processing_avg_fps:.1f} FPS")
-    print(f"Total tracked objects: {total_objects}")
     
     return embedding_model, detector
 
