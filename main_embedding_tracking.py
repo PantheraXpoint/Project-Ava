@@ -116,7 +116,8 @@ def process_video(video_path: str, object_faiss_db_path: str = "object_embedding
         if frame_count % event_frame_skip == 0:
             # Process event
             frame_indices.append(frame_count)
-            frames.append(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+            # frames.append(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+            frames.append(Image.fromarray(cv2.cvtColor(cv2.resize(frame, (1280, 720)), cv2.COLOR_BGR2RGB)))
         
         if len(frame_indices) == video_chunk_num_frames:
             detected_objects = [

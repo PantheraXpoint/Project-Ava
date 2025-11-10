@@ -151,6 +151,23 @@ Question: {input_text}
 Output: 
 """
 
+PROMPTS["time_extraction"] = """
+You are an expert time parser for video event descriptions.
+
+Given an input description, extract the time information it refers to.
+
+Return the result as a Python list of two floats (in seconds):
+- If the text contains a time range (e.g. "from 00:12 to 00:18" or "12s–18s"), return [12, 18].
+- If it contains a single time point (e.g. "at 00:15" or "15 seconds"), return [15, 15].
+- If there is no time information at all, return None.
+
+Only output the final Python object — no explanations, no quotes.
+
+Input: {input_text}
+
+Output:
+"""
+
 PROMPTS["query_rewrite_for_entity_retrieval"] = """
 - Goal -
 For a given query, generate a declarative sentence to serve as a query for retrieving relevant knowledge, concentrating on the main entities and relevant descriptions.

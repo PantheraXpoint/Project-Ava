@@ -132,8 +132,10 @@ class EventTracker:
                     embeddings = self.embedding_model.get_text_features(chunks)
                     for chunk_index, chunk in enumerate(chunks):
                         faiss_id = self.faiss_db.add_embedding(embeddings[chunk_index], str(description["duration"][0]) + "_" + str(chunk_index), {
-                            'duration': description["duration"],
+                            'start_time': description["duration"][0],
+                            'end_time': description["duration"][1],
                             'description': chunk,
+                            'full_description': description["description"],
                             'objects': description["objects"]
                         })
                         print(f"Added description {chunk} to FAISS database with ID {faiss_id}")

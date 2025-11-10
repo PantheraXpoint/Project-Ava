@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 from .prompt import PROMPTS
 from llms.BaseModel import BaseLanguageModel
 from embeddings.object_search import SearchSystem
-
+from typing import Optional
 from PIL import Image
 import numpy as np
 import tiktoken
@@ -169,6 +169,9 @@ def tri_view_retrieval(
     entities_result = []
     batch_inputs = []
     
+    time_extraction_prompt = PROMPTS["time_extraction"].format(input_text=query)
+    batch_inputs.append({"text": time_extraction_prompt})
+
     # Prepare prompts based on retrieval mode
     if retrieval_mode in ["events_only", "both"]:
         keywords_prompt = PROMPTS["keyword_extraction"].format(input_text=query)
@@ -180,19 +183,22 @@ def tri_view_retrieval(
     
     # Generate responses
     batch_outputs = llm.batch_generate_response(batch_inputs)
-    
+    duration_filter = json.loads(batch_outputs[0]) if batch_outputs[0] != "None" else None
+
     # Process results based on mode
-    output_idx = 0
+    output_idx = 1
     if retrieval_mode in ["events_only", "both"]:
         keywords_response = batch_outputs[output_idx]
         print("Rewrite event response: ", keywords_response)
-        events_result = event_search_system.search_by_description(keywords_response, top_k_for_events)
+        filter_expr = build_filter_expression_for_time(duration_filter)
+        events_result = event_search_system.search_by_description(keywords_response, top_k_for_events, filter_expr)
         output_idx += 1
     
     if retrieval_mode in ["entities_only", "both"]:
         rewrite_entity_response = batch_outputs[output_idx]
         print("Rewrite entity response: ", rewrite_entity_response)
-        entities_result = object_search_system.search_by_description(rewrite_entity_response, top_k_for_entities)
+        filter_expr = build_filter_expression_for_objects(duration_filter)
+        entities_result = object_search_system.search_by_description(rewrite_entity_response, top_k_for_entities, filter_expr)
     
     # Initialize scoring dictionaries
     events_from_events = {}
@@ -201,7 +207,7 @@ def tri_view_retrieval(
     # Process events if needed
     if retrieval_mode in ["events_only", "both"] and events_result:
         for event in events_result:
-            event["id"] = event["id"].split("_")[0]
+            event["id"] = int(event["id"].split("_")[0])
             score = event["similarity_score"]
             events_from_events[event["id"]] = max(score, events_from_events.get(event["id"], 0))
 
@@ -210,6 +216,7 @@ def tri_view_retrieval(
         # Calculate entity-based event scores
         for entity in entities_result:
             for event_id in entity.get("event_id", [entity["id"]]):
+                event_id = int(event_id)
                 if event_id not in events_from_entities:
                     events_from_entities[event_id] = entity["similarity_score"]
                 else:
@@ -253,19 +260,20 @@ def tri_view_retrieval(
         # Find event description
         event_description = ""
         # Find related entities
-        related_entities = []        
+        related_entities = []       
         if events_result:
             matching_events = [event for event in events_result if event["id"] == event_id]
             if len(matching_events) > 0:
                 matching_events = matching_events[0]
-                event_duration = list(map(int, matching_events['faiss_metadata']['duration'].split(",")))
+                event_duration = [int(matching_events['faiss_metadata']['start_time']), int(matching_events['faiss_metadata']['end_time'])]
                 event_description = matching_events['faiss_metadata']['description']
                 filter_objects = None
                 if matching_events['faiss_metadata']['objects'] != "":
                     filter_objects = {"track_id": matching_events['faiss_metadata']['objects'].split(",")}
+                filter_expr = build_filter_expression(filter_objects)
                 event_objects = object_search_system.search_by_description(event_description,
                                                                         top_k_for_entities,
-                                                                        filter_objects)
+                                                                        filter_expr)
                 for object in event_objects:
                     filtered = [(f, b) for f, b in zip(object['frame_numbers'], object['bbox_history']) if event_duration[1] >= f >= event_duration[0]]
                     if filtered:
@@ -360,3 +368,34 @@ def chunk_text(text: str):
     """
     sentences = text.split(".")
     return [sentence.strip() for sentence in sentences if sentence.strip()]
+
+def build_filter_expression(filter: Optional[Dict[str, Any]] = None) -> str:
+    """Build a filter expression for Milvus."""
+    if filter is None:
+        return None
+    filter_expr = []
+    for key, value in filter.items():
+        if isinstance(value, list):
+            for item in value:
+                filter_expr.append(f"{key} == {item}")
+        else:
+            filter_expr.append(f"{key} == {value}")
+    return " or ".join(filter_expr)
+
+def build_filter_expression_for_time(filter: Optional[Dict[str, Any]] = None) -> str:
+    """Build a filter expression for Milvus for time."""
+    if filter is None:
+        return None
+    filter_expr = []
+    filter_expr.append(f"start_time <= {filter[1]}")
+    filter_expr.append(f"end_time >= {filter[0]}")
+    return " and ".join(filter_expr)
+
+def build_filter_expression_for_objects(filter: Optional[Dict[str, Any]] = None) -> str:
+    """Build a filter expression for Milvus for time."""
+    if filter is None:
+        return None
+    filter_expr = []
+    filter_expr.append(f"frame_number >= {filter[0]}")
+    filter_expr.append(f"frame_number <= {filter[1]}")
+    return " and ".join(filter_expr)

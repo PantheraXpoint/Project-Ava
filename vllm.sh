@@ -11,3 +11,10 @@ vllm serve Qwen/Qwen2.5-VL-7B-Instruct-AWQ \
   --mm-encoder-tp-mode data \
   --enforce-eager \
   --trust-remote-code
+# lmdeploy serve api_server \
+#   Qwen/Qwen2.5-VL-7B-Instruct-AWQ \
+#   --model-format awq \
+#   --backend turbomind \
+#   --tp 1 \
+#   --session-len 16384 \
+#   --server-port 8000 

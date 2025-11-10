@@ -142,16 +142,6 @@ class MilvusDB:
         self.collection.flush()
         return result.primary_keys[0]
     
-    def build_filter_expression(self, filter: Dict[str, Any]) -> str:
-        """Build a filter expression for Milvus."""
-        filter_expr = []
-        for key, value in filter.items():
-            if isinstance(value, list):
-                for item in value:
-                    filter_expr.append(f"{key} == {item}")
-            else:
-                filter_expr.append(f"{key} == {value}")
-        return " or ".join(filter_expr)
 
     def search(
         self,

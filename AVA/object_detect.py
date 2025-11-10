@@ -304,11 +304,13 @@ class ObjectDetectorTracker:
                     self.all_tracked_objects[track_id]["event_id"].append(event_id)
             # Add tracked object to SQLite database
             self._add_tracked_object(tracked_object)
+        # from pympler import asizeof
+        # print("Size of all_tracked_objects: ", asizeof.asizeof(self.all_tracked_objects)/1024/1024, "MB")
         if len(self.all_tracked_objects) > MAX_TRACKED_OBJECTS:
-            # Remove the oldest tracked object
-            oldest_tracked_object = min(self.all_tracked_objects.items(), key=lambda x: x[1]["frame_numbers"][0])
-            # print(f"Removing oldest tracked object {oldest_tracked_object[0]}")
-            del self.all_tracked_objects[oldest_tracked_object[0]]
+            oldest_tracked_object = [track_id for track_id in self.tracker.tracks.keys() if track_id not in self.all_tracked_objects]
+            for rm_track_id in oldest_tracked_object:
+                print(f"Removing tracked object {rm_track_id}")
+                del self.all_tracked_objects[rm_track_id]
         # vis_frame = self.visualize_results(frame, tracked_objects)
         # cv2.imwrite(f"debug/tracked_objects_{frame_count}.jpg", vis_frame)
 

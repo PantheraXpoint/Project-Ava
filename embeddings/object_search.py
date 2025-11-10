@@ -28,7 +28,7 @@ class SearchSystem:
             self.sqlite_db = None
         self.embedding_model = embedding_model
     
-    def search_by_description(self, description: str, k: Optional[int] = None, filter: Optional[Dict] = None) -> List[Dict]:
+    def search_by_description(self, description: str, k: Optional[int] = None, filter_expr: Optional[str] = None) -> List[Dict]:
         """
         Search for objects by text description
         
@@ -45,7 +45,6 @@ class SearchSystem:
         # Search in FAISS database
         if k is None:
             k = len(self.faiss_db.get_all_ids())
-        filter_expr = self.faiss_db.build_filter_expression(filter) if filter is not None else None
         faiss_results = self.faiss_db.search(description_embedding, k, filter_expr)
         
         # Get additional information from SQLite database
