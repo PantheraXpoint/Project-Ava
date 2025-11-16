@@ -5,6 +5,13 @@ AVA_cache/
 # Dataset directories (symbolic links)
 datas/
 
+# Analysis directories
+analysis/
+analysis_backup/
+
+# Scene Graph modules
+REACT/
+
 # Symbolic links (general rule)
 # Note: Git doesn't follow symbolic links by default, but this helps with clarity
 # Ignore any symbolic links that point to external datasets
