@@ -194,15 +194,16 @@ def tree_search(
     events_vdb: BaseVectorStorage,
     entities_vdb: BaseVectorStorage,    
     features_vdb: BaseVectorStorage,
+    retrieval_mode: str = "tri_view",
 ):
     from .utils import logger
     logger.info(f"STEP - Tree Search Start")
     
     # Tree search initialization
     tree_init_start = time.time()
-    tree_search = TreeSearch(query, llm, video, events_vdb, entities_vdb, features_vdb)
+    tree_search = TreeSearch(query, llm, video, events_vdb, entities_vdb, features_vdb, retrieval_mode=retrieval_mode)
     tree_init_end = time.time()
-    logger.info(f"TIMING - Tree Search Initialization: {tree_init_end - tree_init_start:.4f} seconds")
+    logger.info(f"TIMING - Tree Search Initialization ({retrieval_mode}): {tree_init_end - tree_init_start:.4f} seconds")
     
     # Tree search execution
     tree_execution_start = time.time()

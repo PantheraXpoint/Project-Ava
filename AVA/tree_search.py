@@ -141,6 +141,244 @@ def tri_view_retrieval(
     
     return results
 
+def events_only_retrieval(
+    query: str,
+    llm: Union[BaseLanguageModel, BaseVideoModel],
+    events_vdb: BaseVectorStorage,
+    generation: int = 0
+):
+    """Retrieval using only events vector database"""
+    # Start timing for events-only retrieval
+    events_only_start = time.time()
+    from .utils import logger
+    logger.info(f"STEP - Events-Only Retrieval Start (generation {generation})")
+    
+    top_k_for_events = 5
+    S = 1
+    
+    # Prepare prompt
+    prompt_prep_start = time.time()
+    keywords_prompt = PROMPTS["keyword_extraction"].format(
+        input_text=query
+    )
+    prompt_prep_end = time.time()
+    logger.info(f"TIMING - Prepare Keywords Prompt: {prompt_prep_end - prompt_prep_start:.4f} seconds")
+    
+    # LLM generation
+    llm_generation_start = time.time()
+    keywords_response = llm.generate_response({"text": keywords_prompt})
+    llm_generation_end = time.time()
+    logger.info(f"TIMING - LLM Generation for Keywords: {llm_generation_end - llm_generation_start:.4f} seconds")
+    
+    # Vector database query
+    vector_query_start = time.time()
+    events_result = events_vdb.query(keywords_response, top_k=top_k_for_events)
+    vector_query_end = time.time()
+    logger.info(f"TIMING - Events Vector Database Query: {vector_query_end - vector_query_start:.4f} seconds")
+
+    # Event similarity scores calculation
+    similarity_calc_start = time.time()
+    events_from_events = {event["id"]: event["__metrics__"] for event in events_result}
+    similarity_calc_end = time.time()
+    logger.info(f"TIMING - Event Similarity Calculation: {similarity_calc_end - similarity_calc_start:.4f} seconds")
+    
+    # Sort events by scores
+    sorting_start = time.time()
+    events_from_events = sorted(events_from_events.items(), key=lambda x: x[1], reverse=True)
+    sorting_end = time.time()
+    logger.info(f"TIMING - Sort Events by Scores: {sorting_end - sorting_start:.4f} seconds")
+    
+    # Normalized scoring
+    scoring_start = time.time()
+    event_scores = {}
+    events_from_events_scores_sum = sum([score for _, score in events_from_events])
+    
+    for event_id, score in events_from_events:
+        event_scores[event_id] = score / events_from_events_scores_sum * S
+    scoring_end = time.time()
+    logger.info(f"TIMING - Normalized Scoring: {scoring_end - scoring_start:.4f} seconds")
+            
+    # Prepare results
+    result_prep_start = time.time()
+    results = [{"event_id": [event_id], "query": [query], "score": event_scores[event_id], "generation": generation+1} for event_id in event_scores]
+    
+    for result in results:
+        event_id = result["event_id"][0]
+        event_data = events_vdb.get_data(event_id)
+        result["event_data"] = [event_data]
+
+    results = sorted(results, key=lambda x: x["event_data"][0]["duration"][0])
+    result_prep_end = time.time()
+    logger.info(f"TIMING - Prepare Results: {result_prep_end - result_prep_start:.4f} seconds")
+    
+    end_time = time.time()
+    logger.info(f"TIMING - Events-Only Retrieval Total: {end_time - events_only_start:.4f} seconds")
+    
+    return results
+
+def entities_only_retrieval(
+    query: str,
+    llm: Union[BaseLanguageModel, BaseVideoModel],
+    entities_vdb: BaseVectorStorage,
+    events_vdb: BaseVectorStorage,
+    generation: int = 0
+):
+    """Retrieval using only entities vector database"""
+    # Start timing for entities-only retrieval
+    entities_only_start = time.time()
+    from .utils import logger
+    logger.info(f"STEP - Entities-Only Retrieval Start (generation {generation})")
+    
+    top_k_for_entities = 5
+    S = 1
+    
+    # Prepare prompt
+    prompt_prep_start = time.time()
+    rewrite_entity_prompt = PROMPTS["query_rewrite_for_entity_retrieval"].format(
+        input_text=query
+    )
+    prompt_prep_end = time.time()
+    logger.info(f"TIMING - Prepare Entity Rewrite Prompt: {prompt_prep_end - prompt_prep_start:.4f} seconds")
+    
+    # LLM generation
+    llm_generation_start = time.time()
+    rewrite_entity_response = llm.generate_response({"text": rewrite_entity_prompt})
+    llm_generation_end = time.time()
+    logger.info(f"TIMING - LLM Generation for Entity Rewrite: {llm_generation_end - llm_generation_start:.4f} seconds")
+    
+    # Vector database query
+    vector_query_start = time.time()
+    entities_result = entities_vdb.query(rewrite_entity_response, top_k=top_k_for_entities)
+    vector_query_end = time.time()
+    logger.info(f"TIMING - Entities Vector Database Query: {vector_query_end - vector_query_start:.4f} seconds")
+
+    # Event similarity scores calculation from entities
+    similarity_calc_start = time.time()
+    events_from_entities = {}
+    for entity in entities_result:
+        for event_id in entity["events"]:
+            if event_id not in events_from_entities:
+                events_from_entities[event_id] = entity["__metrics__"]
+            else:
+                events_from_entities[event_id] += entity["__metrics__"]
+    similarity_calc_end = time.time()
+    logger.info(f"TIMING - Event Similarity Calculation from Entities: {similarity_calc_end - similarity_calc_start:.4f} seconds")
+    
+    # Sort events by scores
+    sorting_start = time.time()
+    events_from_entities = sorted(events_from_entities.items(), key=lambda x: x[1], reverse=True)
+    sorting_end = time.time()
+    logger.info(f"TIMING - Sort Events by Scores: {sorting_end - sorting_start:.4f} seconds")
+    
+    # Normalized scoring
+    scoring_start = time.time()
+    event_scores = {}
+    events_from_entities_scores_sum = sum([score for _, score in events_from_entities])
+    
+    for event_id, score in events_from_entities:
+        event_scores[event_id] = score / events_from_entities_scores_sum * S
+    scoring_end = time.time()
+    logger.info(f"TIMING - Normalized Scoring: {scoring_end - scoring_start:.4f} seconds")
+            
+    # Prepare results
+    result_prep_start = time.time()
+    results = [{"event_id": [event_id], "query": [query], "score": event_scores[event_id], "generation": generation+1} for event_id in event_scores]
+    
+    for result in results:
+        event_id = result["event_id"][0]
+        event_data = events_vdb.get_data(event_id)
+        result["event_data"] = [event_data]
+
+    results = sorted(results, key=lambda x: x["event_data"][0]["duration"][0])
+    result_prep_end = time.time()
+    logger.info(f"TIMING - Prepare Results: {result_prep_end - result_prep_start:.4f} seconds")
+    
+    end_time = time.time()
+    logger.info(f"TIMING - Entities-Only Retrieval Total: {end_time - entities_only_start:.4f} seconds")
+    
+    return results
+
+def features_only_retrieval(
+    query: str,
+    llm: Union[BaseLanguageModel, BaseVideoModel],
+    features_vdb: BaseVectorStorage,
+    events_vdb: BaseVectorStorage,
+    generation: int = 0
+):
+    """Retrieval using only features vector database"""
+    # Start timing for features-only retrieval
+    features_only_start = time.time()
+    from .utils import logger
+    logger.info(f"STEP - Features-Only Retrieval Start (generation {generation})")
+    
+    top_k_for_features = 32
+    S = 1
+    
+    # Prepare prompt
+    prompt_prep_start = time.time()
+    rewrite_feature_prompt = PROMPTS["query_rewrite_for_visual_retrieval"].format(
+        input_text=query
+    )
+    prompt_prep_end = time.time()
+    logger.info(f"TIMING - Prepare Feature Rewrite Prompt: {prompt_prep_end - prompt_prep_start:.4f} seconds")
+    
+    # LLM generation
+    llm_generation_start = time.time()
+    rewrite_feature_response = llm.generate_response({"text": rewrite_feature_prompt})
+    llm_generation_end = time.time()
+    logger.info(f"TIMING - LLM Generation for Feature Rewrite: {llm_generation_end - llm_generation_start:.4f} seconds")
+    
+    # Vector database query
+    vector_query_start = time.time()
+    features_result = features_vdb.query(rewrite_feature_response, top_k=top_k_for_features)
+    vector_query_end = time.time()
+    logger.info(f"TIMING - Features Vector Database Query: {vector_query_end - vector_query_start:.4f} seconds")
+
+    # Event similarity scores calculation from features
+    similarity_calc_start = time.time()
+    events_from_features = {}
+    for feature in features_result:
+        if feature["event"] not in events_from_features:
+            events_from_features[feature["event"]] = feature["__metrics__"]
+        else:
+            events_from_features[feature["event"]] += feature["__metrics__"]
+    similarity_calc_end = time.time()
+    logger.info(f"TIMING - Event Similarity Calculation from Features: {similarity_calc_end - similarity_calc_start:.4f} seconds")
+    
+    # Sort events by scores
+    sorting_start = time.time()
+    events_from_features = sorted(events_from_features.items(), key=lambda x: x[1], reverse=True)
+    sorting_end = time.time()
+    logger.info(f"TIMING - Sort Events by Scores: {sorting_end - sorting_start:.4f} seconds")
+    
+    # Normalized scoring
+    scoring_start = time.time()
+    event_scores = {}
+    events_from_features_scores_sum = sum([score for _, score in events_from_features])
+    
+    for event_id, score in events_from_features:
+        event_scores[event_id] = score / events_from_features_scores_sum * S
+    scoring_end = time.time()
+    logger.info(f"TIMING - Normalized Scoring: {scoring_end - scoring_start:.4f} seconds")
+            
+    # Prepare results
+    result_prep_start = time.time()
+    results = [{"event_id": [event_id], "query": [query], "score": event_scores[event_id], "generation": generation+1} for event_id in event_scores]
+    
+    for result in results:
+        event_id = result["event_id"][0]
+        event_data = events_vdb.get_data(event_id)
+        result["event_data"] = [event_data]
+
+    results = sorted(results, key=lambda x: x["event_data"][0]["duration"][0])
+    result_prep_end = time.time()
+    logger.info(f"TIMING - Prepare Results: {result_prep_end - result_prep_start:.4f} seconds")
+    
+    end_time = time.time()
+    logger.info(f"TIMING - Features-Only Retrieval Total: {end_time - features_only_start:.4f} seconds")
+    
+    return results
+
 class EventList:
     def __init__(self, datas:List[Dict], Limited_length:int=16):
         self.datas = []
@@ -362,6 +600,9 @@ class Node:
         # Tri-view retrieval step
         tri_view_start = time.time()
         events_result = tri_view_retrieval(sub_query, self.llm, self.events_vdb, self.entities_vdb, self.features_vdb, generation=self.event_list.max_generation)
+        # events_result = events_only_retrieval(sub_query, self.llm, self.events_vdb, generation=self.event_list.max_generation)
+        # events_result = entities_only_retrieval(sub_query, self.llm, self.entities_vdb, self.events_vdb, generation=self.event_list.max_generation)
+        # events_result = features_only_retrieval(sub_query, self.llm, self.features_vdb, self.events_vdb, generation=self.event_list.max_generation)
         tri_view_end = time.time()
         logger.info(f"TIMING - Node {self.node_id} Tri-view Retrieval in Re-query: {tri_view_end - tri_view_start:.4f} seconds")
         
@@ -484,7 +725,8 @@ class TreeSearch:
                  events_vdb: BaseVectorStorage,
                  entities_vdb: BaseVectorStorage,
                  features_vdb: BaseVectorStorage,
-                 max_depth: int = 3):
+                 max_depth: int = 3,
+                 retrieval_mode: str = "tri_view"):
         self.query = query
         self.llm = llm
         self.video = video
@@ -492,18 +734,31 @@ class TreeSearch:
         self.entities_vdb = entities_vdb
         self.features_vdb = features_vdb
         self.max_depth = max_depth
-        self.event_list = self.init_event_list(query, llm, events_vdb, entities_vdb, features_vdb)
+        self.retrieval_mode = retrieval_mode
+        self.event_list = self.init_event_list(query, llm, events_vdb, entities_vdb, features_vdb, retrieval_mode)
         self.root = Node(state={}, action="Root", query=query, initial_event_list=self.event_list, events_vdb=events_vdb, entities_vdb=entities_vdb, features_vdb=features_vdb, llm=llm, video=video)
         
         self.actions = self.ACTIONS
 
-    def init_event_list(self, query, llm, events_vdb, entities_vdb, features_vdb):
+    def init_event_list(self, query, llm, events_vdb, entities_vdb, features_vdb, retrieval_mode):
         init_start = time.time()
-        events_result = tri_view_retrieval(query, llm, events_vdb, entities_vdb, features_vdb)
+        
+        if retrieval_mode == "tri_view":
+            events_result = tri_view_retrieval(query, llm, events_vdb, entities_vdb, features_vdb)
+        elif retrieval_mode == "events_only":
+            events_result = events_only_retrieval(query, llm, events_vdb)
+        elif retrieval_mode == "entities_only":
+            events_result = entities_only_retrieval(query, llm, entities_vdb, events_vdb)
+        elif retrieval_mode == "features_only":
+            events_result = features_only_retrieval(query, llm, features_vdb, events_vdb)
+        else:
+            # Default to tri_view
+            events_result = tri_view_retrieval(query, llm, events_vdb, entities_vdb, features_vdb)
+            
         event_list = EventList(events_result)
         init_end = time.time()
         from .utils import logger
-        logger.info(f"TIMING - Initialize Event List: {init_end - init_start:.4f} seconds")
+        logger.info(f"TIMING - Initialize Event List ({retrieval_mode}): {init_end - init_start:.4f} seconds")
         
         return event_list
 

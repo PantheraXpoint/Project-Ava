@@ -8,8 +8,6 @@ from lmdeploy import pipeline, TurbomindEngineConfig, GenerationConfig
 # Add embeddings directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'embeddings'))
 
-# from FAISSDB import FAISSDB
-from SQLiteDB import SQLiteDB
 from JinaCLIP import JinaCLIP
 
 class QwenLM(BaseLanguageModel):

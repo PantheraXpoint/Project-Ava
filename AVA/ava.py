@@ -171,21 +171,22 @@ class AVA:
                 continue
             storage_inst.index_done_callback()
     
-    def query_tree_search(self, query: str, question_id: int, re_process: bool = False):
+    def query_tree_search(self, query: str, question_id: int, re_process: bool = False, retrieval_mode: str = "tri_view"):
         # Start timing for query tree search
         query_tree_search_start = time.time()
         logger.info(f"STEP - Query Tree Search Start for question {question_id}")
         
-        # Setup folder structure
+        # Setup folder structure based on retrieval mode
         folder_setup_start = time.time()
-        questions_folder = os.path.join(self.video.work_dir, "questions")
+        questions_folder_name = self._get_questions_folder_name(retrieval_mode)
+        questions_folder = os.path.join(self.video.work_dir, questions_folder_name)
         if not os.path.exists(questions_folder):
             os.makedirs(questions_folder)
         question_folder = os.path.join(questions_folder, f"{question_id}")
         if not os.path.exists(question_folder):
             os.makedirs(question_folder)
         folder_setup_end = time.time()
-        logger.info(f"TIMING - Folder Setup: {folder_setup_end - folder_setup_start:.4f} seconds")
+        logger.info(f"TIMING - Folder Setup ({retrieval_mode}): {folder_setup_end - folder_setup_start:.4f} seconds")
             
         if not re_process and os.path.exists(os.path.join(question_folder, "tree_information.json")):
             logger.info(f"Tree information already exists for question {question_id}, skipping...")
@@ -194,11 +195,11 @@ class AVA:
         try:
             logger.info(f"Querying AVA with query: {query}")
             
-            # Tree search execution
+            # Tree search execution with specific retrieval mode
             tree_search_execution_start = time.time()
-            tree_information = tree_search(query, self.llm_model, self.video, self.events_vdb, self.entities_vdb, self.features_vdb)
+            tree_information = tree_search(query, self.llm_model, self.video, self.events_vdb, self.entities_vdb, self.features_vdb, retrieval_mode=retrieval_mode)
             tree_search_execution_end = time.time()
-            logger.info(f"TIMING - Tree Search Execution: {tree_search_execution_end - tree_search_execution_start:.4f} seconds")
+            logger.info(f"TIMING - Tree Search Execution ({retrieval_mode}): {tree_search_execution_end - tree_search_execution_start:.4f} seconds")
             
             # Save tree information
             save_tree_info_start = time.time()
@@ -210,19 +211,20 @@ class AVA:
         finally:
             pass
     
-    def generate_SA_answer(self, query: str, question_id: int):
+    def generate_SA_answer(self, query: str, question_id: int, retrieval_mode: str = "tri_view"):
         # Start timing for SA answer generation
         sa_answer_start = time.time()
         logger.info(f"STEP - SA Answer Generation Start for question {question_id}")
         
         # Load tree information
         load_tree_info_start = time.time()
-        question_folder = os.path.join(self.video.work_dir, "questions")
+        questions_folder_name = self._get_questions_folder_name(retrieval_mode)
+        question_folder = os.path.join(self.video.work_dir, questions_folder_name)
         tree_information_file = os.path.join(question_folder, f"{question_id}", "tree_information.json")
         with open(tree_information_file, "r") as f:
             tree_information = json.load(f)
         load_tree_info_end = time.time()
-        logger.info(f"TIMING - Load Tree Information: {load_tree_info_end - load_tree_info_start:.4f} seconds")
+        logger.info(f"TIMING - Load Tree Information ({retrieval_mode}): {load_tree_info_end - load_tree_info_start:.4f} seconds")
             
         # generate self-consistency result
         if os.path.exists(os.path.join(question_folder, f"{question_id}", "SA_self_consistency_result.json")):
@@ -285,6 +287,16 @@ class AVA:
         logger.info(f"TIMING - Extract Final Answer: {extract_answer_end - extract_answer_start:.4f} seconds")
 
         return final_sa_answer
+
+    def _get_questions_folder_name(self, retrieval_mode: str) -> str:
+        """Get the appropriate questions folder name based on retrieval mode"""
+        folder_mapping = {
+            "tri_view": "questions",
+            "events_only": "questions_events_only", 
+            "entities_only": "questions_entities_only",
+            "features_only": "questions_features_only"
+        }
+        return folder_mapping.get(retrieval_mode, "questions")
     
     def generate_CA_answer(self, query: str, question_id: int):
         # Start timing for CA answer generation
